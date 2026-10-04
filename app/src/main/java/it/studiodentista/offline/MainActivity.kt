@@ -121,9 +121,9 @@ fun CalendarScreen(prestations:List<PrestazioneEntity>,studies:List<StudyEntity>
     val monthItems=prestations.filter{it.date.startsWith(month.toString())}
     val total=totalGain(monthItems,agreements,dayWorks)
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal=16.dp,vertical=4.dp)) {
-        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("La mia agenda",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.SemiBold);Spacer(Modifier.weight(1f));Text("Oggi",modifier=Modifier.clickable{onStudies()})}
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("La mia agenda",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.SemiBold);Spacer(Modifier.weight(1f))}
         Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically){Text("‹",fontSize=28.sp,modifier=Modifier.clickable{month=month.minusMonths(1)});Text(month.format(IT_MONTH).replaceFirstChar{it.uppercase()},Modifier.weight(1f),style=MaterialTheme.typography.titleLarge);Text("›",fontSize=28.sp,modifier=Modifier.clickable{month=month.plusMonths(1)})}
+        Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically){Text("‹",fontSize=28.sp,modifier=Modifier.clickable{month=month.minusMonths(1)});Text(month.format(IT_MONTH).replaceFirstChar{it.uppercase()},Modifier.weight(1f),style=MaterialTheme.typography.titleLarge);Text("›",fontSize=28.sp,modifier=Modifier.clickable{month=month.plusMonths(1)});Button(onClick=onStudies,contentPadding=PaddingValues(horizontal=10.dp,vertical=4.dp)){Text("Oggi")}}
         Spacer(Modifier.height(6.dp))
         Row(Modifier.fillMaxWidth()){listOf("L","M","M","G","V","S","D").forEach{Text(it,Modifier.weight(1f),fontWeight=FontWeight.Bold)} }
         Spacer(Modifier.height(3.dp))
@@ -195,44 +195,223 @@ fun PrestazioniScreen(date:String, prestations:List<PrestazioneEntity>, studies:
 }
 
 @Composable
-fun PrestazioneFormScreen(item:PrestazioneEntity?,initialDate:String,studies:List<StudyEntity>,prestations:List<PrestazioneEntity>,agreements:List<CompensationAgreementEntity>,onBack:()->Unit,onSave:(String,Long,String,String,Long,Long,String)->Unit,onDelete:(()->Unit)?=null) {
-    var date by remember{mutableStateOf(displayDate(item?.date ?: initialDate))}
-    var patient by remember{mutableStateOf(item?.patientName?.let(::capitalizeWords)?:"")}
-    var procedure by remember{mutableStateOf(item?.procedure?.let(::capitalizeWords)?:"")}
-    var price by remember{mutableStateOf(if(item==null||item.priceCents==0L)"" else formatInputMoney(item.priceCents))}
-    var gain by remember{mutableStateOf(if(item==null)"" else formatInputMoney(item.gainCents))}
-    var gainManuallyEdited by remember{mutableStateOf(item != null)}
-    var note by remember{mutableStateOf(item?.notes?:"")}
-    var selected by remember{mutableStateOf(studies.firstOrNull{it.id==item?.studyId} ?: studies.firstOrNull{it.preferredDay == runCatching { LocalDate.parse(initialDate, ISO_DATE).dayOfWeek.value }.getOrDefault(-1)} ?: studies.firstOrNull())}
-    var expanded by remember{mutableStateOf(false)}
-    var dirty by remember{mutableStateOf(false)}
-    var confirmBack by remember{mutableStateOf(false)}
-    var patientFocus by remember{mutableStateOf(false)}
-    var procedureFocus by remember{mutableStateOf(false)}
-    val agreement=selected?.let{effectiveAgreement(it.id,parseDateInput(date),agreements)}
-    val fixedDay=agreement?.type==FIXED
-    val fixedPerPrestazione=agreement?.type==FIXED_PER_PRESTATION
-    val fixed= fixedDay || fixedPerPrestazione
-
-    LaunchedEffect(selected?.id,date) {
-        if (fixedPerPrestazione) price = "0,00"
-        if (!gainManuallyEdited) gain = when { fixedDay -> "0,00"; fixedPerPrestazione -> gain; else -> formatInputMoney(calcPercentageGain(price,agreement)) }
+fun PrestazioneFormScreen(
+    item: PrestazioneEntity?,
+    initialDate: String,
+    studies: List<StudyEntity>,
+    prestations: List<PrestazioneEntity>,
+    agreements: List<CompensationAgreementEntity>,
+    onBack: () -> Unit,
+    onSave: (String, Long, String, String, Long, Long, String) -> Unit,
+    onDelete: (() -> Unit)? = null
+) {
+    var date by remember { mutableStateOf(displayDate(item?.date ?: initialDate)) }
+    var patient by remember { mutableStateOf(item?.patientName?.let(::capitalizeWords) ?: "") }
+    var procedure by remember { mutableStateOf(item?.procedure?.let(::capitalizeWords) ?: "") }
+    var price by remember { mutableStateOf(if (item == null || item.priceCents == 0L) "" else formatInputMoney(item.priceCents)) }
+    var gain by remember { mutableStateOf(if (item == null) "" else formatInputMoney(item.gainCents)) }
+    var gainManuallyEdited by remember { mutableStateOf(item != null) }
+    var note by remember { mutableStateOf(item?.notes ?: "") }
+    var selected by remember {
+        mutableStateOf(
+            studies.firstOrNull { it.id == item?.studyId }
+                ?: studies.firstOrNull {
+                    it.preferredDay == runCatching {
+                        LocalDate.parse(initialDate, ISO_DATE).dayOfWeek.value
+                    }.getOrDefault(-1)
+                }
+                ?: studies.firstOrNull()
+        )
     }
-    BackHandlerWithConfirm(dirty,confirmBack,{confirmBack=true},{confirmBack=false;onBack()})
-    Column(Modifier.fillMaxSize()){TopBar(if(item==null)"Nuova prestazione" else "Modifica prestazione"){if(dirty)confirmBack=true else onBack()};Column(Modifier.padding(16.dp).verticalScroll(rememberScrollState())){
-        DateField(date,{date=formatDateInput(it);dirty=true},"Data (GG-MM-AAAA)");Spacer(Modifier.height(8.dp))
-        Box{OutlinedButton(onClick={expanded=true},modifier=Modifier.fillMaxWidth()){Text(selected?.name?:"Seleziona studio")};DropdownMenu(expanded,{expanded=false}){studies.forEach{s->DropdownMenuItem(text={Text(s.name)},onClick={selected=s;expanded=false;dirty=true;gainManuallyEdited=false})}}};Spacer(Modifier.height(8.dp))
-        SuggestionField("Paziente",patient,{v->patient=capitalizeWordsPreserveSpaces(v);dirty=true;patientFocus=true},suggestionsFor(patient,selected?.id,prestations){it.patientName},patientFocus,{patientFocus=false;patient=it})
-        Spacer(Modifier.height(8.dp))
-        SuggestionField("Prestazione",procedure,{v->procedure=capitalizeWordsPreserveSpaces(v);dirty=true;procedureFocus=true},suggestionsFor(procedure,selected?.id,prestations){it.procedure},procedureFocus,{chosen->procedureFocus=false;procedure=chosen;dirty=true;val a=selected?.let{effectiveAgreement(it.id,parseDateInput(date),agreements)};when(a?.type){PERCENTAGE->{val historicalPrice=modeValue(prestations.filter{it.studyId==selected?.id && it.procedure.equals(chosen,ignoreCase=true)}){it.priceCents};if(historicalPrice!=null){price=formatInputMoney(historicalPrice);gain=formatInputMoney(calcPercentageGain(price,a));gainManuallyEdited=false}};FIXED_PER_PRESTATION->{price="0,00";val historicalGain=modeValue(prestations.filter{it.studyId==selected?.id && it.procedure.equals(chosen,ignoreCase=true)}){it.gainCents};if(historicalGain!=null){gain=formatInputMoney(historicalGain);gainManuallyEdited=false}}}})
-        Spacer(Modifier.height(8.dp))
-        if(!fixedDay || fixedPerPrestazione){NextField(price,{price=it;dirty=true;if(!gainManuallyEdited && agreement?.type==PERCENTAGE)gain=formatInputMoney(calcPercentageGain(it,agreement))},"Prezzo (€)",KeyboardType.Decimal);Spacer(Modifier.height(8.dp))}
-        else Text("Studio a compenso fisso a giornata: il prezzo della singola prestazione è 0.",style=MaterialTheme.typography.bodySmall,color=Color.Gray)
-        NextField(gain,{gain=it;dirty=true;gainManuallyEdited=true},"Guadagno (€)",KeyboardType.Decimal)
-        Spacer(Modifier.height(8.dp));OutlinedTextField(note,{note=it;dirty=true},label={Text("Note")},modifier=Modifier.fillMaxWidth(),minLines=3);Spacer(Modifier.height(14.dp));Button(onClick={selected?.let{s->onSave(parseDateInput(date),s.id,patient,procedure,if(fixedDay)0 else parseMoney(price),parseMoney(gain),note)}},enabled=selected!=null,modifier=Modifier.fillMaxWidth()){Text("Salva")}
-        if(onDelete!=null){Spacer(Modifier.height(8.dp));OutlinedButton(onClick=onDelete,modifier=Modifier.fillMaxWidth()){Text("Elimina")}}
-    }}
-    if(confirmBack)AlertDialog(onDismissRequest={confirmBack=false},title={Text("Annullare le modifiche?")},text={Text("Le modifiche non salvate verranno perse.")},confirmButton={TextButton(onClick={confirmBack=false;onBack()}){Text("Annulla modifiche")}},dismissButton={TextButton(onClick={confirmBack=false}){Text("Continua modifica")}})
+    var expanded by remember { mutableStateOf(false) }
+    var dirty by remember { mutableStateOf(false) }
+    var confirmBack by remember { mutableStateOf(false) }
+    var patientFocus by remember { mutableStateOf(false) }
+    var procedureFocus by remember { mutableStateOf(false) }
+
+    val agreement = selected?.let { effectiveAgreement(it.id, parseDateInput(date), agreements) }
+    val fixedDay = agreement?.type == FIXED
+    val fixedPerPrestazione = agreement?.type == FIXED_PER_PRESTATION
+
+    LaunchedEffect(selected?.id, date) {
+        if (fixedPerPrestazione) {
+            price = "0,00"
+        }
+        if (!gainManuallyEdited && fixedDay) {
+            gain = "0,00"
+        }
+        if (!gainManuallyEdited && agreement?.type == PERCENTAGE) {
+            gain = formatInputMoney(calcPercentageGain(price, agreement))
+        }
+    }
+
+    BackHandlerWithConfirm(dirty, confirmBack, { confirmBack = true }, { confirmBack = false; onBack() })
+
+    Column(Modifier.fillMaxSize()) {
+        TopBar(if (item == null) "Nuova prestazione" else "Modifica prestazione") {
+            if (dirty) confirmBack = true else onBack()
+        }
+        Column(Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
+            DateField(date, { date = formatDateInput(it); dirty = true }, "Data (GG-MM-AAAA)")
+            Spacer(Modifier.height(8.dp))
+
+            Box {
+                OutlinedButton(
+                    onClick = { expanded = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(selected?.name ?: "Seleziona studio")
+                }
+                DropdownMenu(expanded, { expanded = false }) {
+                    studies.forEach { study ->
+                        DropdownMenuItem(
+                            text = { Text(study.name) },
+                            onClick = {
+                                selected = study
+                                expanded = false
+                                dirty = true
+                                gainManuallyEdited = false
+                                if (effectiveAgreement(study.id, parseDateInput(date), agreements)?.type == FIXED_PER_PRESTATION) {
+                                    price = "0,00"
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+
+            SuggestionField(
+                "Paziente",
+                patient,
+                { value -> patient = capitalizeWordsPreserveSpaces(value); dirty = true; patientFocus = true },
+                suggestionsFor(patient, selected?.id, prestations) { it.patientName },
+                patientFocus,
+                { chosen -> patientFocus = false; patient = chosen }
+            )
+            Spacer(Modifier.height(8.dp))
+
+            SuggestionField(
+                "Prestazione",
+                procedure,
+                { value -> procedure = capitalizeWordsPreserveSpaces(value); dirty = true; procedureFocus = true },
+                suggestionsFor(procedure, selected?.id, prestations) { it.procedure },
+                procedureFocus,
+                { chosen ->
+                    procedureFocus = false
+                    procedure = chosen
+                    dirty = true
+                    val currentAgreement = selected?.let {
+                        effectiveAgreement(it.id, parseDateInput(date), agreements)
+                    }
+                    when (currentAgreement?.type) {
+                        PERCENTAGE -> {
+                            val historicalPrice = modeValue(
+                                prestations.filter {
+                                    it.studyId == selected?.id &&
+                                        it.procedure.equals(chosen, ignoreCase = true) &&
+                                        it.priceCents > 0
+                                }
+                            ) { it.priceCents }
+                            if (historicalPrice != null) {
+                                price = formatInputMoney(historicalPrice)
+                                gain = formatInputMoney(calcPercentageGain(price, currentAgreement))
+                                gainManuallyEdited = false
+                            }
+                        }
+                        FIXED_PER_PRESTATION -> {
+                            price = "0,00"
+                            val historicalGain = modeValue(
+                                prestations.filter {
+                                    it.studyId == selected?.id &&
+                                        it.procedure.equals(chosen, ignoreCase = true) &&
+                                        it.gainCents > 0
+                                }
+                            ) { it.gainCents }
+                            if (historicalGain != null) {
+                                gain = formatInputMoney(historicalGain)
+                                gainManuallyEdited = false
+                            }
+                        }
+                    }
+                }
+            )
+            Spacer(Modifier.height(8.dp))
+
+            if (!fixedDay || fixedPerPrestazione) {
+                NextField(
+                    price,
+                    { value ->
+                        price = value
+                        dirty = true
+                        if (!gainManuallyEdited && agreement?.type == PERCENTAGE) {
+                            gain = formatInputMoney(calcPercentageGain(value, agreement))
+                        }
+                    },
+                    "Prezzo (€)",
+                    KeyboardType.Decimal
+                )
+                Spacer(Modifier.height(8.dp))
+            } else {
+                Text(
+                    "Studio a compenso fisso a giornata: il prezzo della singola prestazione è 0.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
+            }
+
+            NextField(
+                gain,
+                { value -> gain = value; dirty = true; gainManuallyEdited = true },
+                "Guadagno (€)",
+                KeyboardType.Decimal
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                note,
+                { value -> note = value; dirty = true },
+                label = { Text("Note") },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 3
+            )
+            Spacer(Modifier.height(14.dp))
+            Button(
+                onClick = {
+                    selected?.let { study ->
+                        onSave(
+                            parseDateInput(date),
+                            study.id,
+                            patient,
+                            procedure,
+                            if (fixedDay) 0L else parseMoney(price),
+                            parseMoney(gain),
+                            note
+                        )
+                    }
+                },
+                enabled = selected != null,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Salva") }
+            if (onDelete != null) {
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = onDelete, modifier = Modifier.fillMaxWidth()) { Text("Elimina") }
+            }
+        }
+    }
+
+    if (confirmBack) {
+        AlertDialog(
+            onDismissRequest = { confirmBack = false },
+            title = { Text("Annullare le modifiche?") },
+            text = { Text("Le modifiche non salvate verranno perse.") },
+            confirmButton = {
+                TextButton(onClick = { confirmBack = false; onBack() }) { Text("Annulla modifiche") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmBack = false }) { Text("Continua modifica") }
+            }
+        )
+    }
 }
 
 @Composable
@@ -264,10 +443,11 @@ private fun capitalizeWordsPreserveSpaces(value:String):String = buildString { v
 @Composable
 fun DateField(value:String,onValue:(String)->Unit,label:String,modifier:Modifier=Modifier){
     var state by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(value)) }
+    val focusManager = LocalFocusManager.current
     LaunchedEffect(value) { if(state.text != value) state = androidx.compose.ui.text.input.TextFieldValue(value, androidx.compose.ui.text.TextRange(value.length)) }
     OutlinedTextField(
         value=state,
-        onValueChange={newValue->{
+        onValueChange={newValue ->
             val pos=newValue.selection.start
             val adjusted=if(pos < newValue.text.length && newValue.text[pos]=='-') newValue.copy(selection=androidx.compose.ui.text.TextRange(pos+1)) else newValue
             state=adjusted
@@ -275,7 +455,7 @@ fun DateField(value:String,onValue:(String)->Unit,label:String,modifier:Modifier
         },
         label={Text(label)}, modifier=modifier, singleLine=true,
         keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number,imeAction=androidx.compose.ui.text.input.ImeAction.Next),
-        keyboardActions=KeyboardActions(onNext={LocalFocusManager.current.moveFocus(FocusDirection.Down)})
+        keyboardActions=KeyboardActions(onNext={focusManager.moveFocus(FocusDirection.Down)})
     )
 }
 
