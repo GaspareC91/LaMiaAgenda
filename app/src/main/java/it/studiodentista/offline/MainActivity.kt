@@ -757,7 +757,7 @@ fun SummaryScreen(prestations:List<PrestazioneEntity>, studies:List<StudyEntity>
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp), modifier=Modifier.fillMaxWidth()) {
             OutlinedButton(onClick={exportLauncher.launch("agenda_${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy.MM.dd-HH.mm.ss"))}.csv")}, modifier=Modifier.weight(1f)){Text("Esporta dati")}
-            OutlinedButton(onClick={importLauncher.launch(arrayOf("text/csv","text/plain","application/csv"))}, modifier=Modifier.weight(1f)){Text("Importa dati")}
+            OutlinedButton(onClick={importLauncher.launch(arrayOf("*/*"))}, modifier=Modifier.weight(1f)){Text("Importa dati")}
         }
     }
     if (pendingImport != null) {
