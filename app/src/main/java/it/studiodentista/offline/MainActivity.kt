@@ -461,14 +461,171 @@ fun DateField(value:String,onValue:(String)->Unit,label:String,modifier:Modifier
 
 
 @Composable
-fun StudyFormScreen(study:StudyEntity?,history:List<CompensationAgreementEntity>,all:List<CompensationAgreementEntity>,onBack:()->Unit,onSave:(String,String,Int,String,Long,Double,String)->Unit,onDelete:(()->Unit)?=null){
-    val current=history.firstOrNull();var name by remember{mutableStateOf(study?.name?.let(::capitalizeWordsPreserveSpaces) ?:"")};var city by remember{mutableStateOf(study?.city?:"")};var preferredDay by remember{mutableStateOf(study?.preferredDay?:1)};var type by remember{mutableStateOf(current?.type?:FIXED)};var fixed by remember{mutableStateOf(if(current==null)"" else formatInputMoney(current.fixedCents))};var pct by remember{mutableStateOf(current?.percentage?.toString() ?: "")};var validFrom by remember{mutableStateOf(displayDate(current?.validFrom ?: LocalDate.now().toString()))};var changed by remember{mutableStateOf(study==null)};var confirm by remember{mutableStateOf(false)}
-    Column(Modifier.fillMaxSize()){TopBar(if(study==null)"Nuovo studio" else "Modifica studio"){if(changed)confirm=true else onBack()};Column(Modifier.padding(16.dp).verticalScroll(rememberScrollState())){
-        NextField(name,{name=it;changed=true},"Nome studio");Spacer(Modifier.height(8.dp));NextField(city,{city=it;changed=true},"Città");Spacer(Modifier.height(10.dp));Text("Giorno predefinito di lavoro",fontWeight=FontWeight.Medium);var dayExpanded by remember{mutableStateOf(false)};Box{OutlinedButton(onClick={dayExpanded=true},modifier=Modifier.fillMaxWidth()){Text(dayName(preferredDay))};DropdownMenu(dayExpanded,{dayExpanded=false}){(1..6).forEach{d->DropdownMenuItem(text={Text(dayName(d))},onClick={preferredDay=d;dayExpanded=false;changed=true})}}};Spacer(Modifier.height(12.dp));Text("Tipo compenso",fontWeight=FontWeight.Medium);Column { Row(verticalAlignment=Alignment.CenterVertically){RadioButton(type==FIXED,{type=FIXED;changed=true});Text("Fisso a giornata")} Row(verticalAlignment=Alignment.CenterVertically){RadioButton(type==PERCENTAGE,{type=PERCENTAGE;changed=true});Text("A percentuale")} Row(verticalAlignment=Alignment.CenterVertically){RadioButton(type==FIXED_PER_PRESTATION,{type=FIXED_PER_PRESTATION;changed=true});Text("Fisso a prestazione")} };Spacer(Modifier.height(8.dp))
-        if(type==FIXED)NextField(fixed,{fixed=it;changed=true},"Compenso giornaliero (€)",KeyboardType.Decimal) else if(type==PERCENTAGE)NextField(pct,{pct=it;changed=true},"Percentuale (%)",KeyboardType.Decimal) else Text("Il guadagno viene determinato per singola prestazione.",style=MaterialTheme.typography.bodySmall,color=Color.Gray)
-        Spacer(Modifier.height(8.dp));DateField(validFrom,{validFrom=formatDateInput(it);changed=true},"Valido dal (GG-MM-AAAA)");Text("La data di validità è necessaria quando cambia l'accordo: le prestazioni successive useranno il nuovo compenso.",style=MaterialTheme.typography.bodySmall,color=Color.Gray);Spacer(Modifier.height(14.dp));Button(onClick={onSave(name,city,preferredDay,type,parseMoney(fixed),pct.replace(',','.').toDoubleOrNull()?:0.0,parseDateInput(validFrom))},modifier=Modifier.fillMaxWidth()){Text("Salva")};if(onDelete!=null){Spacer(Modifier.height(8.dp));OutlinedButton(onClick=onDelete,modifier=Modifier.fillMaxWidth()){Text("Elimina")}}
-    }}
-    if(confirm)AlertDialog(onDismissRequest={confirm=false},title={Text("Annullare le modifiche?")},text={Text("Le modifiche non salvate verranno perse.")},confirmButton={TextButton(onClick={confirm=false;onBack()}){Text("Annulla modifiche")}},dismissButton={TextButton(onClick={confirm=false}){Text("Continua modifica")}})
+fun StudyFormScreen(
+    study: StudyEntity?,
+    history: List<CompensationAgreementEntity>,
+    all: List<CompensationAgreementEntity>,
+    onBack: () -> Unit,
+    onSave: (String, String, Int, String, Long, Double, String) -> Unit,
+    onDelete: (() -> Unit)? = null
+) {
+    val current = history.firstOrNull()
+    var name by remember { mutableStateOf(study?.name?.let(::capitalizeWordsPreserveSpaces) ?: "") }
+    var city by remember { mutableStateOf(study?.city ?: "") }
+    var preferredDay by remember { mutableStateOf(study?.preferredDay ?: 1) }
+    var type by remember { mutableStateOf(current?.type ?: FIXED) }
+    var fixed by remember { mutableStateOf(if (current == null) "" else formatInputMoney(current.fixedCents)) }
+    var pct by remember { mutableStateOf(current?.percentage?.toString() ?: "") }
+    var validFrom by remember { mutableStateOf(displayDate(current?.validFrom ?: LocalDate.now().toString())) }
+    var changed by remember { mutableStateOf(study == null) }
+    var confirm by remember { mutableStateOf(false) }
+    var dayExpanded by remember { mutableStateOf(false) }
+
+    Column(Modifier.fillMaxSize()) {
+        TopBar(if (study == null) "Nuovo studio" else "Modifica studio") {
+            if (changed) confirm = true else onBack()
+        }
+        Column(
+            Modifier
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            NextField(name, { name = it; changed = true }, "Nome studio")
+            Spacer(Modifier.height(8.dp))
+            NextField(city, { city = it; changed = true }, "Città")
+            Spacer(Modifier.height(10.dp))
+
+            Text("Giorno predefinito di lavoro", fontWeight = FontWeight.Medium)
+            Box {
+                OutlinedButton(
+                    onClick = { dayExpanded = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(dayName(preferredDay))
+                }
+                DropdownMenu(
+                    expanded = dayExpanded,
+                    onDismissRequest = { dayExpanded = false }
+                ) {
+                    (1..6).forEach { d ->
+                        DropdownMenuItem(
+                            text = { Text(dayName(d)) },
+                            onClick = {
+                                preferredDay = d
+                                dayExpanded = false
+                                changed = true
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Text("Tipo compenso", fontWeight = FontWeight.Medium)
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(
+                        selected = type == FIXED,
+                        onClick = { type = FIXED; changed = true }
+                    )
+                    Text("Fisso a giornata")
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(
+                        selected = type == PERCENTAGE,
+                        onClick = { type = PERCENTAGE; changed = true }
+                    )
+                    Text("A percentuale")
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(
+                        selected = type == FIXED_PER_PRESTATION,
+                        onClick = { type = FIXED_PER_PRESTATION; changed = true }
+                    )
+                    Text("Fisso a prestazione")
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            when (type) {
+                FIXED -> NextField(
+                    fixed,
+                    { fixed = it; changed = true },
+                    "Compenso giornaliero (€)",
+                    KeyboardType.Decimal
+                )
+                PERCENTAGE -> NextField(
+                    pct,
+                    { pct = it; changed = true },
+                    "Percentuale (%)",
+                    KeyboardType.Decimal
+                )
+                FIXED_PER_PRESTATION -> Text(
+                    "Il guadagno viene determinato per singola prestazione.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+            DateField(
+                validFrom,
+                { validFrom = formatDateInput(it); changed = true },
+                "Valido dal (GG-MM-AAAA)"
+            )
+            Text(
+                "La data di validità è necessaria quando cambia l'accordo: le prestazioni successive useranno il nuovo compenso.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+            Spacer(Modifier.height(14.dp))
+
+            Button(
+                onClick = {
+                    onSave(
+                        name,
+                        city,
+                        preferredDay,
+                        type,
+                        parseMoney(fixed),
+                        pct.replace(',', '.').toDoubleOrNull() ?: 0.0,
+                        parseDateInput(validFrom)
+                    )
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Salva")
+            }
+
+            if (onDelete != null) {
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onDelete,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Elimina")
+                }
+            }
+        }
+    }
+
+    if (confirm) {
+        AlertDialog(
+            onDismissRequest = { confirm = false },
+            title = { Text("Annullare le modifiche?") },
+            text = { Text("Le modifiche non salvate verranno perse.") },
+            confirmButton = {
+                TextButton(onClick = { confirm = false; onBack() }) {
+                    Text("Annulla modifiche")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirm = false }) {
+                    Text("Continua modifica")
+                }
+            }
+        )
+    }
 }
 
 @Composable fun StudiesScreen(studies:List<StudyEntity>,agreements:List<CompensationAgreementEntity>,onBack:()->Unit,onEdit:(StudyEntity)->Unit,onNew:()->Unit){Column(Modifier.fillMaxSize()){TopBar("Studi",onBack);LazyColumn(Modifier.weight(1f).padding(16.dp)){items(studies){s->val a=effectiveAgreement(s.id,LocalDate.now().toString(),agreements);Column(Modifier.fillMaxWidth().clickable{onEdit(s)}.padding(vertical=10.dp)){Text(s.name,fontWeight=FontWeight.Medium);Text(listOf(s.city,dayName(s.preferredDay),a?.let{when(it.type){FIXED -> "Fisso ${money(it.fixedCents)}/giornata"; PERCENTAGE -> "${it.percentage}% a prestazione"; FIXED_PER_PRESTATION -> "Fisso a prestazione"; else -> it.type}}).filterNotNull().filter{it.isNotBlank()}.joinToString(" • "),style=MaterialTheme.typography.bodySmall,color=Color.Gray);HorizontalDivider()}}};Button(onClick=onNew,modifier=Modifier.fillMaxWidth().padding(16.dp),colors=ButtonDefaults.buttonColors(containerColor=Color.Black)){Text("+ NUOVO STUDIO",color=Color.White)}}}
