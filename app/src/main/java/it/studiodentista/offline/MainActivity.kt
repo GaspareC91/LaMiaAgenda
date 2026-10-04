@@ -79,6 +79,8 @@ class DentalViewModel(private val repository: AppRepository) : ViewModel() {
     fun saveStudy(id:Long?,name:String,city:String,preferredDay:Int,type:String,fixed:Long,percentage:Double,validFrom:String,done:()->Unit={}) = viewModelScope.launch { repository.saveStudy(id,name,city,preferredDay,type,fixed,percentage,validFrom); done() }
     fun deleteStudy(id:Long,done:()->Unit={}) = viewModelScope.launch { repository.archiveStudy(id); done() }
     fun setHalfDay(date:String,studyId:Long,value:Boolean) = viewModelScope.launch { repository.toggleHalfDay(date,studyId,value) }
+    suspend fun exportDatabaseCsv(): String = repository.exportDatabaseCsv()
+    suspend fun importDatabaseCsv(csv:String) = repository.importDatabaseCsv(csv)
 }
 
 @Composable
@@ -91,11 +93,12 @@ fun DentalApp(vm:DentalViewModel) {
     var selectedDate by remember { mutableStateOf(LocalDate.now().toString()) }
     var editingPrestazione by remember { mutableStateOf<PrestazioneEntity?>(null) }
     var editingStudy by remember { mutableStateOf<StudyEntity?>(null) }
+    var summaryMonth by remember { mutableStateOf(YearMonth.now()) }
     MaterialTheme(colorScheme=lightColorScheme(background=Color.White,surface=Color.White)) {
         Surface(Modifier.fillMaxSize(),color=Color.White) {
             Box(Modifier.fillMaxSize().padding(top=APP_EDGE_PADDING,bottom=APP_EDGE_PADDING)) {
                 when(screen) {
-                    "calendar" -> CalendarScreen(prestations,studies,agreements,dayWorks, onDate={ d -> selectedDate=d; screen="prestazioni" }, onStudies={screen="studies"}, onSummary={screen="summary"})
+                    "calendar" -> CalendarScreen(prestations,studies,agreements,dayWorks, onDate={ d -> selectedDate=d; screen="prestazioni" }, onStudies={screen="studies"}, onSummary={month -> summaryMonth=month; screen="summary"})
                     "prestazioni" -> PrestazioniScreen(selectedDate,prestations,studies,agreements,dayWorks,
                         onBack={screen="calendar"}, onNew={editingPrestazione=null;screen="newPrestazione"}, onEdit={editingPrestazione=it;screen="editPrestazione"}, onHalfDay={sid,v->vm.setHalfDay(selectedDate,sid,v)})
                     "newPrestazione" -> PrestazioneFormScreen(null,selectedDate,studies,prestations,agreements,onBack={screen="prestazioni"},onSave={d,s,p,pr,price,gain,n->vm.addPrestazione(d,s,p,pr,price,gain,n){screen="prestazioni"}})
@@ -103,7 +106,7 @@ fun DentalApp(vm:DentalViewModel) {
                     "studies" -> StudiesScreen(studies,agreements,onBack={screen="calendar"},onEdit={editingStudy=it;screen="editStudy"},onNew={editingStudy=null;screen="newStudy"})
                     "newStudy" -> StudyFormScreen(null,emptyList(),agreements,onBack={screen="studies"},onSave={n,c,d,t,f,p,v->vm.saveStudy(null,n,c,d,t,f,p,v){screen="studies"}})
                     "editStudy" -> editingStudy?.let { StudyFormScreen(it,agreements.filter{a->a.studyId==it.id},agreements,onBack={screen="studies"},onSave={n,c,d,t,f,p,v->vm.saveStudy(it.id,n,c,d,t,f,p,v){screen="studies"}},onDelete={vm.deleteStudy(it.id){screen="studies"}}) } ?: run {screen="studies"}
-                    "summary" -> SummaryScreen(prestations,studies,agreements,dayWorks,onBack={screen="calendar"})
+                    "summary" -> SummaryScreen(prestations,studies,agreements,dayWorks,onBack={screen="calendar"},vm=vm,initialMonth=summaryMonth)
                 }
             }
         }
@@ -114,7 +117,7 @@ fun DentalApp(vm:DentalViewModel) {
 fun TopBar(title:String,onBack:()->Unit) { Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Text("‹",fontSize=30.sp,modifier=Modifier.clickable{onBack()});Spacer(Modifier.width(10.dp));Text(title,fontSize=20.sp,fontWeight=FontWeight.Medium)} }
 
 @Composable
-fun CalendarScreen(prestations:List<PrestazioneEntity>,studies:List<StudyEntity>,agreements:List<CompensationAgreementEntity>,dayWorks:List<DayWorkEntity>,onDate:(String)->Unit,onStudies:()->Unit,onSummary:()->Unit) {
+fun CalendarScreen(prestations:List<PrestazioneEntity>,studies:List<StudyEntity>,agreements:List<CompensationAgreementEntity>,dayWorks:List<DayWorkEntity>,onDate:(String)->Unit,onStudies:()->Unit,onSummary:(YearMonth)->Unit) {
     var month by remember { mutableStateOf(YearMonth.now()) }
     var reveal by remember { mutableStateOf(false) }
     val map=studies.associateBy{it.id}
@@ -147,7 +150,7 @@ fun CalendarScreen(prestations:List<PrestazioneEntity>,studies:List<StudyEntity>
         }
         Spacer(Modifier.height(10.dp))
         Card(Modifier.fillMaxWidth().clickable{reveal=!reveal},colors=CardDefaults.cardColors(containerColor=Color(0xFFF5F5F5))){Column(Modifier.padding(12.dp)){Text("Guadagni del mese",style=MaterialTheme.typography.labelLarge);Text(if(reveal)money(total) else "••••••",fontSize=23.sp,fontWeight=FontWeight.Bold);Text(if(reveal)"Tocca per oscurare" else "Tocca per visualizzare",style=MaterialTheme.typography.bodySmall,color=Color.Gray)}}
-        Spacer(Modifier.height(10.dp)); Row(horizontalArrangement=Arrangement.spacedBy(8.dp),modifier=Modifier.fillMaxWidth()){OutlinedButton(onClick={onDate(LocalDate.now().toString())},modifier=Modifier.weight(1f)){Text("Prestazioni di oggi")};OutlinedButton(onClick=onSummary){Text("Riepiloghi")}}
+        Spacer(Modifier.height(10.dp)); Row(horizontalArrangement=Arrangement.spacedBy(8.dp),modifier=Modifier.fillMaxWidth()){OutlinedButton(onClick={onDate(LocalDate.now().toString())},modifier=Modifier.weight(1f)){Text("Prestazioni di oggi")};OutlinedButton(onClick={onSummary(month)}){Text("Riepiloghi")}}
     }
 }
 
@@ -734,9 +737,9 @@ fun StudyFormScreen(
 @Composable fun StudiesScreen(studies:List<StudyEntity>,agreements:List<CompensationAgreementEntity>,onBack:()->Unit,onEdit:(StudyEntity)->Unit,onNew:()->Unit){Column(Modifier.fillMaxSize()){TopBar("Studi",onBack);LazyColumn(Modifier.weight(1f).padding(16.dp)){items(studies){s->val a=effectiveAgreement(s.id,LocalDate.now().toString(),agreements);Column(Modifier.fillMaxWidth().clickable{onEdit(s)}.padding(vertical=10.dp)){Text(s.name,fontWeight=FontWeight.Medium);Text(listOf(s.city,dayName(s.preferredDay),a?.let{when(it.type){FIXED -> "Fisso ${money(it.fixedCents)}/giornata"; PERCENTAGE -> "${it.percentage}% a prestazione"; FIXED_PER_PRESTATION -> "Fisso a prestazione"; else -> it.type}}).filterNotNull().filter{it.isNotBlank()}.joinToString(" • "),style=MaterialTheme.typography.bodySmall,color=Color.Gray);HorizontalDivider()}}};Button(onClick=onNew,modifier=Modifier.fillMaxWidth().padding(16.dp),colors=ButtonDefaults.buttonColors(containerColor=Color.Black)){Text("+ NUOVO STUDIO",color=Color.White)}}}
 
 @Composable
-fun SummaryScreen(prestations:List<PrestazioneEntity>, studies:List<StudyEntity>, agreements:List<CompensationAgreementEntity>, dayWorks:List<DayWorkEntity>, onBack:()->Unit) {
-    var from by remember { mutableStateOf("") }
-    var to by remember { mutableStateOf("") }
+fun SummaryScreen(prestations:List<PrestazioneEntity>, studies:List<StudyEntity>, agreements:List<CompensationAgreementEntity>, dayWorks:List<DayWorkEntity>, onBack:()->Unit, vm:DentalViewModel, initialMonth:YearMonth) {
+    var from by remember(initialMonth) { mutableStateOf(initialMonth.atDay(1).format(DATE_INPUT)) }
+    var to by remember(initialMonth) { mutableStateOf(initialMonth.atEndOfMonth().format(DATE_INPUT)) }
     var selected by remember { mutableStateOf<Long?>(null) }
     var expanded by remember { mutableStateOf(false) }
     val fromIso=parseDateInput(from)
@@ -745,8 +748,27 @@ fun SummaryScreen(prestations:List<PrestazioneEntity>, studies:List<StudyEntity>
     val map=studies.associateBy{it.id}
     val monthly=filtered.groupBy{it.date.take(7)}.toSortedMap(compareByDescending{it})
     val context=androidx.compose.ui.platform.LocalContext.current
-    val csv=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")){u->if(u!=null)saveCsv(context,u,filtered,map,agreements,dayWorks)}
-    val pdf=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")){u->if(u!=null)savePdf(context,u,filtered,map,fromIso,toIso,agreements,dayWorks)}
+    val scope=rememberCoroutineScope()
+    var pendingImport by remember { mutableStateOf<String?>(null) }
+    var importError by remember { mutableStateOf<String?>(null) }
+    val exportLauncher=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")){u->
+        if(u!=null) scope.launch {
+            runCatching {
+                val text=vm.exportDatabaseCsv()
+                context.contentResolver.openOutputStream(u)?.use { out ->
+                    out.write(byteArrayOf(0xEF.toByte(),0xBB.toByte(),0xBF.toByte()))
+                    out.write(text.toByteArray(Charsets.UTF_8))
+                } ?: error("Impossibile creare il file.")
+            }.onFailure { importError=it.message ?: "Esportazione non riuscita." }
+        }
+    }
+    val importLauncher=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){u->
+        if(u!=null) scope.launch {
+            runCatching { context.contentResolver.openInputStream(u)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: error("Impossibile leggere il file.") }
+                .onSuccess { pendingImport=it }
+                .onFailure { importError=it.message ?: "Impossibile leggere il file." }
+        }
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) {
         TopBar("Riepiloghi",onBack)
         Spacer(Modifier.height(10.dp))
@@ -771,7 +793,31 @@ fun SummaryScreen(prestations:List<PrestazioneEntity>, studies:List<StudyEntity>
         Text("TOTALE",style=MaterialTheme.typography.labelMedium)
         Text(money(totalGain(filtered,agreements,dayWorks)),style=MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){OutlinedButton(onClick={pdf.launch("riepilogo.pdf")}){Text("ESPORTA PDF")};OutlinedButton(onClick={csv.launch("riepilogo.csv")}){Text("ESPORTA CSV")}}
+        Row(horizontalArrangement=Arrangement.spacedBy(8.dp), modifier=Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick={exportLauncher.launch("la_mia_agenda_database.csv")}, modifier=Modifier.weight(1f)){Text("Esporta dati")}
+            OutlinedButton(onClick={importLauncher.launch(arrayOf("text/csv","text/plain","application/csv"))}, modifier=Modifier.weight(1f)){Text("Importa dati")}
+        }
+    }
+    if (pendingImport != null) {
+        AlertDialog(
+            onDismissRequest={pendingImport=null},
+            title={Text("Importa dati")},
+            text={Text("Continuando, tutti i dati attualmente presenti nel database verranno cancellati e sostituiti con quelli del file selezionato. Vuoi continuare?")},
+            confirmButton={TextButton(onClick={
+                val csvText=pendingImport ?: return@TextButton
+                pendingImport=null
+                scope.launch { runCatching { vm.importDatabaseCsv(csvText) }.onFailure { importError=it.message ?: "Importazione non riuscita." } }
+            }){Text("Continua")}},
+            dismissButton={TextButton(onClick={pendingImport=null}){Text("Annulla")}}
+        )
+    }
+    if (importError != null) {
+        AlertDialog(
+            onDismissRequest={importError=null},
+            title={Text("Operazione non riuscita")},
+            text={Text(importError ?: "")},
+            confirmButton={TextButton(onClick={importError=null}){Text("OK")}}
+        )
     }
 }
 

@@ -10,3 +10,9 @@ Modifiche rispetto alla v0.5.4:
 - per gli accordi A percentuale, selezionando una prestazione suggerita viene proposto il prezzo storico più frequente per studio e prestazione e viene calcolato il guadagno secondo la percentuale concordata;
 - per Fisso a prestazione, selezionando una prestazione suggerita viene proposto il guadagno storico più frequente per studio e prestazione;
 - le proposte storiche restano modificabili.
+
+
+## v0.5.5 fix9
+- Riepiloghi: sostituiti i pulsanti PDF/CSV con Esporta dati e Importa dati.
+- Esportazione completa delle quattro tabelle Room in un unico CSV strutturato.
+- Importazione con validazione della struttura, conferma esplicita e transazione atomica.
