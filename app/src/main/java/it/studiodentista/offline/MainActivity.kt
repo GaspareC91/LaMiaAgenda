@@ -28,6 +28,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -413,7 +414,7 @@ fun PrestazioneFormScreen(
 @Composable
 fun SuggestionField(label:String,value:String,onValue:(String)->Unit,suggestions:List<String>,expanded:Boolean,onSelect:(String)->Unit){
     Column(Modifier.fillMaxWidth()) {
-        OutlinedTextField(value,onValue,label={Text(label)},modifier=Modifier.fillMaxWidth(),singleLine=true,keyboardOptions=KeyboardOptions(imeAction=androidx.compose.ui.text.input.ImeAction.Next))
+        OutlinedTextField(value,onValue,label={Text(label)},modifier=Modifier.fillMaxWidth(),singleLine=true,keyboardOptions=KeyboardOptions(capitalization=KeyboardCapitalization.Words,imeAction=androidx.compose.ui.text.input.ImeAction.Next))
         if(expanded && value.isNotBlank() && suggestions.isNotEmpty()) {
             Card(Modifier.fillMaxWidth().padding(top=2.dp),colors=CardDefaults.cardColors(containerColor=Color.White),elevation=CardDefaults.cardElevation(defaultElevation=3.dp)) {
                 Column(Modifier.fillMaxWidth().heightIn(max=180.dp)) { suggestions.take(6).forEach { suggestion -> Text(suggestion,Modifier.fillMaxWidth().clickable{onSelect(suggestion)}.padding(horizontal=12.dp,vertical=10.dp)) } }
@@ -433,16 +434,17 @@ private fun capitalizeWordsPreserveSpaces(value:String):String = buildString { v
 
 @Composable fun NextField(value:String,onValue:(String)->Unit,label:String,type:KeyboardType=KeyboardType.Text){
     val focusManager=LocalFocusManager.current
-    OutlinedTextField(value,onValue,label={Text(label)},modifier=Modifier.fillMaxWidth(),singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=type,imeAction=androidx.compose.ui.text.input.ImeAction.Next),keyboardActions=KeyboardActions(onNext={focusManager.moveFocus(FocusDirection.Down)}) )
+    OutlinedTextField(value,onValue,label={Text(label)},modifier=Modifier.fillMaxWidth(),singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=type,capitalization=if(type==KeyboardType.Text) KeyboardCapitalization.Words else KeyboardCapitalization.None,imeAction=androidx.compose.ui.text.input.ImeAction.Next),keyboardActions=KeyboardActions(onNext={focusManager.moveFocus(FocusDirection.Down)}) )
 }
 
 @Composable
 fun DateField(value:String,onValue:(String)->Unit,label:String,modifier:Modifier=Modifier){
     var state by remember {
+        val initial = normalizeDateFieldText(value)
         mutableStateOf(
             androidx.compose.ui.text.input.TextFieldValue(
-                normalizeDateFieldText(value),
-                androidx.compose.ui.text.TextRange(normalizeDateFieldText(value).length.coerceAtMost(10))
+                initial,
+                androidx.compose.ui.text.TextRange(initial.length.coerceAtMost(10))
             )
         )
     }
@@ -464,50 +466,53 @@ fun DateField(value:String,onValue:(String)->Unit,label:String,modifier:Modifier
             val old = state
             val oldText = old.text.take(10)
             val oldCursor = old.selection.start.coerceIn(0, oldText.length)
-            val newText = incoming.text.take(10)
+            val incomingText = incoming.text
 
             when {
-                // Backspace/delete: replace the character immediately before the cursor
-                // with a space. If that character is '-', apply the same rule to the
-                // character before the hyphen and leave the cursor immediately before it.
-                newText.length < oldText.length -> {
+                // Backspace/delete: the IME removes one character from the text.
+                // We restore the fixed 10-character date field and replace the
+                // logical previous digit with a space instead.
+                incomingText.length < oldText.length -> {
                     var target = oldCursor - 1
                     if (target >= 0 && oldText[target] == '-') target--
                     if (target >= 0 && oldText[target] != '-') {
                         val chars = oldText.toCharArray()
                         chars[target] = ' '
                         val updated = chars.concatToString().take(10)
+                        var cursor = target
+                        if (cursor < updated.length && updated[cursor] == '-') cursor++
                         state = androidx.compose.ui.text.input.TextFieldValue(
                             updated,
-                            androidx.compose.ui.text.TextRange(target)
+                            androidx.compose.ui.text.TextRange(cursor.coerceAtMost(10))
                         )
                         onValue(updated)
                     }
                 }
 
-                // A numeric key was typed: replace the character in front of the cursor.
-                // If that character is '-', replace the character immediately after it.
-                newText.length > oldText.length -> {
-                    val typedDigit = findInsertedDigit(oldText, newText)
+                // Typing a digit: Compose normally sends an 11-character string
+                // because it inserted the digit. Do not truncate it before detecting
+                // the inserted digit; that was the source of the previous bug.
+                incomingText.length > oldText.length -> {
+                    val typedDigit = findInsertedDigit(oldText, incomingText)
                     if (typedDigit != null) {
                         var target = oldCursor
                         if (target < oldText.length && oldText[target] == '-') target++
-                        if (target in 0..9) {
-                            val chars = oldText.padEnd(10, ' ').toCharArray()
+                        if (target in 0 until 10) {
+                            val chars = oldText.toCharArray()
                             chars[target] = typedDigit
-                            val updated = chars.concatToString().take(10)
-                            var newCursor = (target + 1).coerceAtMost(10)
-                            if (newCursor < 10 && updated[newCursor] == '-') newCursor++
+                            val updated = chars.concatToString()
+                            var cursor = target + 1
+                            if (cursor < 10 && updated[cursor] == '-') cursor++
                             state = androidx.compose.ui.text.input.TextFieldValue(
                                 updated,
-                                androidx.compose.ui.text.TextRange(newCursor)
+                                androidx.compose.ui.text.TextRange(cursor.coerceAtMost(10))
                             )
                             onValue(updated)
                         }
                     }
                 }
 
-                // Cursor movement / selection changes without text changes.
+                // Cursor movement or selection changes without a text change.
                 else -> {
                     var cursor = incoming.selection.start.coerceIn(0, oldText.length)
                     if (cursor < oldText.length && oldText[cursor] == '-') cursor++
@@ -530,7 +535,6 @@ fun DateField(value:String,onValue:(String)->Unit,label:String,modifier:Modifier
         )
     )
 }
-
 
 private fun findInsertedDigit(oldText:String,newText:String):Char? {
     if (newText.length != oldText.length + 1) return null
@@ -589,9 +593,9 @@ fun StudyFormScreen(
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            NextField(name, { name = it; changed = true }, "Nome studio")
+            NextField(name, { name = capitalizeWordsPreserveSpaces(it); changed = true }, "Nome studio")
             Spacer(Modifier.height(8.dp))
-            NextField(city, { city = it; changed = true }, "Città")
+            NextField(city, { city = capitalizeWordsPreserveSpaces(it); changed = true }, "Città")
             Spacer(Modifier.height(10.dp))
 
             Text("Giorno predefinito di lavoro", fontWeight = FontWeight.Medium)
