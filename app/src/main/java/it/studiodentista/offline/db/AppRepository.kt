@@ -44,28 +44,32 @@ class AppRepository(private val db: AppDatabase) {
         val agreements = db.compensationDao().getAllForBackup()
         val dayWorks = db.dayWorkDao().getAllForBackup()
         return buildString {
-            appendLine("TABLE;studies")
-            appendLine("COLUMNS;id;name;city;preferredDay;active")
-            studies.forEach { appendCsvRow(this, "ROW", "studies", listOf(it.id.toString(), it.name, it.city, it.preferredDay.toString(), it.active.toString())) }
-            appendLine("TABLE;prestations")
-            appendLine("COLUMNS;id;date;studyId;patientName;procedure;priceCents;gainCents;notes")
-            prestations.forEach { appendCsvRow(this, "ROW", "prestations", listOf(it.id.toString(), it.date, it.studyId.toString(), it.patientName, it.procedure, it.priceCents.toString(), it.gainCents.toString(), it.notes)) }
-            appendLine("TABLE;compensation_agreements")
-            appendLine("COLUMNS;id;studyId;validFrom;type;fixedCents;percentage")
-            agreements.forEach { appendCsvRow(this, "ROW", "compensation_agreements", listOf(it.id.toString(), it.studyId.toString(), it.validFrom, it.type, it.fixedCents.toString(), it.percentage.toString())) }
-            appendLine("TABLE;day_work")
-            appendLine("COLUMNS;date;studyId;halfDay")
-            dayWorks.forEach { appendCsvRow(this, "ROW", "day_work", listOf(it.date, it.studyId.toString(), it.halfDay.toString())) }
+            appendLine("TABELLA;Studi")
+            appendLine("COLONNE;;ID;Nome;Città;GiornoPreferito;Attivo")
+            studies.forEach { appendCsvDataRow(this, listOf(it.id.toString(), it.name, it.city, it.preferredDay.toString(), it.active.toString())) }
+            appendLine("TABELLA;Prestazioni")
+            appendLine("COLONNE;;ID;Data;IDStudio;Paziente;Prestazione;PrezzoCentesimi;GuadagnoCentesimi;Note")
+            prestations.forEach { appendCsvDataRow(this, listOf(it.id.toString(), it.date, it.studyId.toString(), it.patientName, it.procedure, it.priceCents.toString(), it.gainCents.toString(), it.notes)) }
+            appendLine("TABELLA;AccordiCompenso")
+            appendLine("COLONNE;;ID;IDStudio;ValidoDal;Tipo;FissoCentesimi;Percentuale")
+            agreements.forEach { appendCsvDataRow(this, listOf(it.id.toString(), it.studyId.toString(), it.validFrom, it.type, it.fixedCents.toString(), it.percentage.toString())) }
+            appendLine("TABELLA;GiorniLavoro")
+            appendLine("COLONNE;;Data;IDStudio;MezzaGiornata")
+            dayWorks.forEach { appendCsvDataRow(this, listOf(it.date, it.studyId.toString(), it.halfDay.toString())) }
         }
+    }
+
+    private fun appendCsvDataRow(out: StringBuilder, values: List<String>) {
+        out.append(values.joinToString(";") { csvEscape(it) }).append('\n')
     }
 
     suspend fun importDatabaseCsv(csv: String) {
         val rows = parseBackupCsv(csv.removePrefix("\uFEFF"))
         val expected = linkedMapOf(
-            "studies" to listOf("id", "name", "city", "preferredDay", "active"),
-            "prestations" to listOf("id", "date", "studyId", "patientName", "procedure", "priceCents", "gainCents", "notes"),
-            "compensation_agreements" to listOf("id", "studyId", "validFrom", "type", "fixedCents", "percentage"),
-            "day_work" to listOf("date", "studyId", "halfDay")
+            "Studi" to listOf("ID", "Nome", "Città", "GiornoPreferito", "Attivo"),
+            "Prestazioni" to listOf("ID", "Data", "IDStudio", "Paziente", "Prestazione", "PrezzoCentesimi", "GuadagnoCentesimi", "Note"),
+            "AccordiCompenso" to listOf("ID", "IDStudio", "ValidoDal", "Tipo", "FissoCentesimi", "Percentuale"),
+            "GiorniLavoro" to listOf("Data", "IDStudio", "MezzaGiornata")
         )
         val parsed = linkedMapOf<String, MutableList<List<String>>>()
         var table: String? = null
@@ -73,42 +77,35 @@ class AppRepository(private val db: AppDatabase) {
         for (row in rows) {
             if (row.isEmpty()) continue
             when (row[0]) {
-                "TABLE" -> {
+                "TABELLA" -> {
                     require(row.size == 2 && expected.containsKey(row[1])) { "Struttura CSV non valida." }
                     table = row[1]; columns = null; parsed.getOrPut(row[1]) { mutableListOf() }
                 }
-                "COLUMNS" -> {
+                "COLONNE" -> {
                     val t = table ?: throw IllegalArgumentException("Struttura CSV non valida.")
-                    require(row.drop(1) == expected[t]) { "Colonne non valide per la tabella $t." }
-                    columns = row.drop(1)
+                    require(row.size == expected[t]!!.size + 2 && row[1].isEmpty() && row.drop(2) == expected[t]) { "Colonne non valide per la tabella $t." }
+                    columns = row.drop(2)
                 }
-                "ROW" -> {
+                else -> {
                     val t = table ?: throw IllegalArgumentException("Struttura CSV non valida.")
                     require(columns == expected[t]) { "Intestazione mancante o non valida per la tabella $t." }
-                    require(row.size == expected[t]!!.size + 2 && row[1] == t) { "Riga non valida per la tabella $t." }
-                    parsed.getOrPut(t) { mutableListOf() }.add(row.drop(2))
+                    require(row.size == expected[t]!!.size) { "Riga non valida per la tabella $t." }
+                    parsed.getOrPut(t) { mutableListOf() }.add(row)
                 }
-                else -> throw IllegalArgumentException("Formato CSV non riconosciuto.")
             }
         }
         require(expected.keys.all { parsed.containsKey(it) }) { "Il file non contiene tutte le tabelle del database." }
 
-        val studies = parsed["studies"]!!.map { StudyEntity(it[0].toLong(), it[1], it[2], it[3].toInt(), it[4].toBooleanStrict()) }
-        val prestations = parsed["prestations"]!!.map { PrestazioneEntity(it[0].toLong(), it[1], it[2].toLong(), it[3], it[4], it[5].toLong(), it[6].toLong(), it[7]) }
-        val agreements = parsed["compensation_agreements"]!!.map { CompensationAgreementEntity(it[0].toLong(), it[1].toLong(), it[2], it[3], it[4].toLong(), it[5].toDouble()) }
-        val dayWorks = parsed["day_work"]!!.map { DayWorkEntity(it[0], it[1].toLong(), it[2].toBooleanStrict()) }
+        val studies = parsed["Studi"]!!.map { StudyEntity(it[0].toLong(), it[1], it[2], it[3].toInt(), it[4].toBooleanStrict()) }
+        val prestations = parsed["Prestazioni"]!!.map { PrestazioneEntity(it[0].toLong(), it[1], it[2].toLong(), it[3], it[4], it[5].toLong(), it[6].toLong(), it[7]) }
+        val agreements = parsed["AccordiCompenso"]!!.map { CompensationAgreementEntity(it[0].toLong(), it[1].toLong(), it[2], it[3], it[4].toLong(), it[5].toDouble()) }
+        val dayWorks = parsed["GiorniLavoro"]!!.map { DayWorkEntity(it[0], it[1].toLong(), it[2].toBooleanStrict()) }
         val studyIds = studies.map { it.id }.toSet()
         require(prestations.all { it.studyId in studyIds } && agreements.all { it.studyId in studyIds } && dayWorks.all { it.studyId in studyIds }) { "Il file contiene riferimenti a studi inesistenti." }
 
         db.withTransaction {
-            db.dayWorkDao().clearAll()
-            db.prestazioneDao().clearAll()
-            db.compensationDao().clearAll()
-            db.studyDao().clearAll()
-            studies.forEach { db.studyDao().insert(it) }
-            prestations.forEach { db.prestazioneDao().insert(it) }
-            agreements.forEach { db.compensationDao().insert(it) }
-            dayWorks.forEach { db.dayWorkDao().upsert(it) }
+            db.dayWorkDao().clearAll(); db.prestazioneDao().clearAll(); db.compensationDao().clearAll(); db.studyDao().clearAll()
+            studies.forEach { db.studyDao().insert(it) }; prestations.forEach { db.prestazioneDao().insert(it) }; agreements.forEach { db.compensationDao().insert(it) }; dayWorks.forEach { db.dayWorkDao().upsert(it) }
         }
     }
 

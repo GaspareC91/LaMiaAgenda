@@ -443,11 +443,10 @@ private fun capitalizeWordsPreserveSpaces(value:String):String = buildString { v
 @Composable
 fun DateField(value:String,onValue:(String)->Unit,label:String,modifier:Modifier=Modifier){
     var state by remember {
-        val initial = normalizeDateFieldText(value)
         mutableStateOf(
             androidx.compose.ui.text.input.TextFieldValue(
-                initial,
-                androidx.compose.ui.text.TextRange(initial.length.coerceAtMost(10))
+                normalizeDateFieldText(value),
+                androidx.compose.ui.text.TextRange(normalizeDateFieldText(value).length.coerceAtMost(10))
             )
         )
     }
@@ -466,35 +465,22 @@ fun DateField(value:String,onValue:(String)->Unit,label:String,modifier:Modifier
     OutlinedTextField(
         value = state,
         onValueChange = { incoming ->
-            val old = state
-            val oldText = old.text.take(10)
-            val oldCursor = old.selection.start.coerceIn(0, oldText.length)
+            val oldText = state.text
+            val oldCursor = state.selection.start.coerceIn(0, oldText.length)
             val incomingText = incoming.text
 
             when {
-                // Backspace/delete: the IME removes one character from the text.
-                // We restore the fixed 10-character date field and replace the
-                // logical previous digit with a space instead.
-                incomingText.length < oldText.length -> {
-                    var target = oldCursor - 1
-                    if (target >= 0 && oldText[target] == '-') target--
-                    if (target >= 0 && oldText[target] != '-') {
-                        val chars = oldText.toCharArray()
-                        chars[target] = ' '
-                        val updated = chars.concatToString().take(10)
-                        var cursor = target
-                        if (cursor < updated.length && updated[cursor] == '-') cursor++
-                        state = androidx.compose.ui.text.input.TextFieldValue(
-                            updated,
-                            androidx.compose.ui.text.TextRange(cursor.coerceAtMost(10))
-                        )
-                        onValue(updated)
-                    }
+                // If the field is not yet full, the new character is inserted at
+                // the current cursor position. This also allows normal deletion.
+                oldText.length < 10 -> {
+                    val updated = incomingText.filter { it.isDigit() || it == '-' }.take(10)
+                    val cursor = incoming.selection.start.coerceIn(0, updated.length)
+                    state = incoming.copy(text = updated, selection = androidx.compose.ui.text.TextRange(cursor))
+                    onValue(updated)
                 }
 
-                // Typing a digit: Compose normally sends an 11-character string
-                // because it inserted the digit. Do not truncate it before detecting
-                // the inserted digit; that was the source of the previous bug.
+                // Once the field is full, a typed digit replaces the character at
+                // the current cursor position instead of increasing the length.
                 incomingText.length > oldText.length -> {
                     val typedDigit = findInsertedDigit(oldText, incomingText)
                     if (typedDigit != null) {
@@ -506,36 +492,26 @@ fun DateField(value:String,onValue:(String)->Unit,label:String,modifier:Modifier
                             val updated = chars.concatToString()
                             var cursor = target + 1
                             if (cursor < 10 && updated[cursor] == '-') cursor++
-                            state = androidx.compose.ui.text.input.TextFieldValue(
-                                updated,
-                                androidx.compose.ui.text.TextRange(cursor.coerceAtMost(10))
-                            )
+                            state = androidx.compose.ui.text.input.TextFieldValue(updated, androidx.compose.ui.text.TextRange(cursor))
                             onValue(updated)
                         }
                     }
                 }
 
-                // Cursor movement or selection changes without a text change.
+                // Normal deletion/cursor movement on a full field.
                 else -> {
-                    var cursor = incoming.selection.start.coerceIn(0, oldText.length)
-                    if (cursor < oldText.length && oldText[cursor] == '-') cursor++
-                    state = incoming.copy(
-                        text = oldText,
-                        selection = androidx.compose.ui.text.TextRange(cursor.coerceAtMost(10))
-                    )
+                    val updated = incomingText.filter { it.isDigit() || it == '-' }.take(10)
+                    val cursor = incoming.selection.start.coerceIn(0, updated.length)
+                    state = incoming.copy(text = updated, selection = androidx.compose.ui.text.TextRange(cursor))
+                    if (updated != oldText) onValue(updated)
                 }
             }
         },
         label = { Text(label) },
         modifier = modifier,
         singleLine = true,
-        keyboardOptions = KeyboardOptions(
-            keyboardType = KeyboardType.Number,
-            imeAction = androidx.compose.ui.text.input.ImeAction.Next
-        ),
-        keyboardActions = KeyboardActions(
-            onNext = { focusManager.moveFocus(FocusDirection.Down) }
-        )
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = androidx.compose.ui.text.input.ImeAction.Next),
+        keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) })
     )
 }
 
@@ -549,21 +525,7 @@ private fun findInsertedDigit(oldText:String,newText:String):Char? {
     return null
 }
 
-private fun normalizeDateFieldText(value:String):String {
-    val raw = value.take(10)
-    val result = CharArray(10) { ' ' }
-    val source = if (raw.length == 10 && raw[2] == '-' && raw[5] == '-') {
-        raw
-    } else {
-        formatDateInput(raw).padEnd(10, ' ')
-    }
-    source.take(10).forEachIndexed { index, ch ->
-        result[index] = if (ch.isDigit() || ch == '-') ch else ' '
-    }
-    if (result.size > 2) result[2] = '-'
-    if (result.size > 5) result[5] = '-'
-    return result.concatToString()
-}
+private fun normalizeDateFieldText(value:String):String = formatDateInput(value).take(10)
 
 
 @Composable
@@ -794,7 +756,7 @@ fun SummaryScreen(prestations:List<PrestazioneEntity>, studies:List<StudyEntity>
         Text(money(totalGain(filtered,agreements,dayWorks)),style=MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp), modifier=Modifier.fillMaxWidth()) {
-            OutlinedButton(onClick={exportLauncher.launch("la_mia_agenda_database.csv")}, modifier=Modifier.weight(1f)){Text("Esporta dati")}
+            OutlinedButton(onClick={exportLauncher.launch("agenda_${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy.MM.dd-HH.mm.ss"))}.csv")}, modifier=Modifier.weight(1f)){Text("Esporta dati")}
             OutlinedButton(onClick={importLauncher.launch(arrayOf("text/csv","text/plain","application/csv"))}, modifier=Modifier.weight(1f)){Text("Importa dati")}
         }
     }
