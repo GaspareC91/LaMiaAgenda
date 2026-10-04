@@ -45,16 +45,16 @@ class AppRepository(private val db: AppDatabase) {
         val dayWorks = db.dayWorkDao().getAllForBackup()
         return buildString {
             appendLine("TABELLA;Studi")
-            appendLine("COLONNE;;ID;Nome;Città;GiornoPreferito;Attivo")
+            appendLine("ID;Nome;Città;GiornoPreferito;Attivo")
             studies.forEach { appendCsvDataRow(this, listOf(it.id.toString(), it.name, it.city, it.preferredDay.toString(), it.active.toString())) }
             appendLine("TABELLA;Prestazioni")
-            appendLine("COLONNE;;ID;Data;IDStudio;Paziente;Prestazione;PrezzoCentesimi;GuadagnoCentesimi;Note")
+            appendLine("ID;Data;IDStudio;Paziente;Prestazione;PrezzoCentesimi;GuadagnoCentesimi;Note")
             prestations.forEach { appendCsvDataRow(this, listOf(it.id.toString(), it.date, it.studyId.toString(), it.patientName, it.procedure, it.priceCents.toString(), it.gainCents.toString(), it.notes)) }
             appendLine("TABELLA;AccordiCompenso")
-            appendLine("COLONNE;;ID;IDStudio;ValidoDal;Tipo;FissoCentesimi;Percentuale")
+            appendLine("ID;IDStudio;ValidoDal;Tipo;FissoCentesimi;Percentuale")
             agreements.forEach { appendCsvDataRow(this, listOf(it.id.toString(), it.studyId.toString(), it.validFrom, it.type, it.fixedCents.toString(), it.percentage.toString())) }
             appendLine("TABELLA;GiorniLavoro")
-            appendLine("COLONNE;;Data;IDStudio;MezzaGiornata")
+            appendLine("Data;IDStudio;MezzaGiornata")
             dayWorks.forEach { appendCsvDataRow(this, listOf(it.date, it.studyId.toString(), it.halfDay.toString())) }
         }
     }
@@ -76,15 +76,13 @@ class AppRepository(private val db: AppDatabase) {
         var columns: List<String>? = null
         for (row in rows) {
             if (row.isEmpty()) continue
-            when (row[0]) {
-                "TABELLA" -> {
+            when {
+                row[0] == "TABELLA" -> {
                     require(row.size == 2 && expected.containsKey(row[1])) { "Struttura CSV non valida." }
                     table = row[1]; columns = null; parsed.getOrPut(row[1]) { mutableListOf() }
                 }
-                "COLONNE" -> {
-                    val t = table ?: throw IllegalArgumentException("Struttura CSV non valida.")
-                    require(row.size == expected[t]!!.size + 2 && row[1].isEmpty() && row.drop(2) == expected[t]) { "Colonne non valide per la tabella $t." }
-                    columns = row.drop(2)
+                table != null && columns == null && row == expected[table] -> {
+                    columns = row
                 }
                 else -> {
                     val t = table ?: throw IllegalArgumentException("Struttura CSV non valida.")
