@@ -123,7 +123,7 @@ fun CalendarScreen(prestations:List<PrestazioneEntity>,studies:List<StudyEntity>
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal=16.dp,vertical=4.dp)) {
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("La mia agenda",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.SemiBold);Spacer(Modifier.weight(1f))}
         Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically){Text("‹",fontSize=28.sp,modifier=Modifier.clickable{month=month.minusMonths(1)});Text(month.format(IT_MONTH).replaceFirstChar{it.uppercase()},Modifier.weight(1f),style=MaterialTheme.typography.titleLarge);Text("›",fontSize=28.sp,modifier=Modifier.clickable{month=month.plusMonths(1)});Button(onClick=onStudies,contentPadding=PaddingValues(horizontal=10.dp,vertical=4.dp)){Text("Oggi")}}
+        Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically){Text("‹",fontSize=28.sp,modifier=Modifier.clickable{month=month.minusMonths(1)});Text(month.format(IT_MONTH).replaceFirstChar{it.uppercase()},Modifier.weight(1f),style=MaterialTheme.typography.titleLarge);Text("›",fontSize=28.sp,modifier=Modifier.clickable{month=month.plusMonths(1)});Button(onClick=onStudies,contentPadding=PaddingValues(horizontal=10.dp,vertical=4.dp)){Text("Studi")}}
         Spacer(Modifier.height(6.dp))
         Row(Modifier.fillMaxWidth()){listOf("L","M","M","G","V","S","D").forEach{Text(it,Modifier.weight(1f),fontWeight=FontWeight.Bold)} }
         Spacer(Modifier.height(3.dp))
@@ -338,7 +338,7 @@ fun PrestazioneFormScreen(
             )
             Spacer(Modifier.height(8.dp))
 
-            if (!fixedDay || fixedPerPrestazione) {
+            if (!fixedPerPrestazione) {
                 NextField(
                     price,
                     { value ->
@@ -352,21 +352,17 @@ fun PrestazioneFormScreen(
                     KeyboardType.Decimal
                 )
                 Spacer(Modifier.height(8.dp))
-            } else {
-                Text(
-                    "Studio a compenso fisso a giornata: il prezzo della singola prestazione è 0.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.Gray
-                )
             }
 
-            NextField(
-                gain,
-                { value -> gain = value; dirty = true; gainManuallyEdited = true },
-                "Guadagno (€)",
-                KeyboardType.Decimal
-            )
-            Spacer(Modifier.height(8.dp))
+            if (!fixedDay) {
+                NextField(
+                    gain,
+                    { value -> gain = value; dirty = true; gainManuallyEdited = true },
+                    "Guadagno (€)",
+                    KeyboardType.Decimal
+                )
+                Spacer(Modifier.height(8.dp))
+            }
             OutlinedTextField(
                 note,
                 { value -> note = value; dirty = true },
@@ -442,21 +438,124 @@ private fun capitalizeWordsPreserveSpaces(value:String):String = buildString { v
 
 @Composable
 fun DateField(value:String,onValue:(String)->Unit,label:String,modifier:Modifier=Modifier){
-    var state by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(value)) }
+    var state by remember {
+        mutableStateOf(
+            androidx.compose.ui.text.input.TextFieldValue(
+                normalizeDateFieldText(value),
+                androidx.compose.ui.text.TextRange(normalizeDateFieldText(value).length.coerceAtMost(10))
+            )
+        )
+    }
     val focusManager = LocalFocusManager.current
-    LaunchedEffect(value) { if(state.text != value) state = androidx.compose.ui.text.input.TextFieldValue(value, androidx.compose.ui.text.TextRange(value.length)) }
+
+    LaunchedEffect(value) {
+        val normalized = normalizeDateFieldText(value)
+        if (state.text != normalized) {
+            state = androidx.compose.ui.text.input.TextFieldValue(
+                normalized,
+                androidx.compose.ui.text.TextRange(normalized.length.coerceAtMost(10))
+            )
+        }
+    }
+
     OutlinedTextField(
-        value=state,
-        onValueChange={newValue ->
-            val pos=newValue.selection.start
-            val adjusted=if(pos < newValue.text.length && newValue.text[pos]=='-') newValue.copy(selection=androidx.compose.ui.text.TextRange(pos+1)) else newValue
-            state=adjusted
-            onValue(adjusted.text)
+        value = state,
+        onValueChange = { incoming ->
+            val old = state
+            val oldText = old.text.take(10)
+            val oldCursor = old.selection.start.coerceIn(0, oldText.length)
+            val newText = incoming.text.take(10)
+
+            when {
+                // Backspace/delete: replace the character immediately before the cursor
+                // with a space. If that character is '-', apply the same rule to the
+                // character before the hyphen and leave the cursor immediately before it.
+                newText.length < oldText.length -> {
+                    var target = oldCursor - 1
+                    if (target >= 0 && oldText[target] == '-') target--
+                    if (target >= 0 && oldText[target] != '-') {
+                        val chars = oldText.toCharArray()
+                        chars[target] = ' '
+                        val updated = chars.concatToString().take(10)
+                        state = androidx.compose.ui.text.input.TextFieldValue(
+                            updated,
+                            androidx.compose.ui.text.TextRange(target)
+                        )
+                        onValue(updated)
+                    }
+                }
+
+                // A numeric key was typed: replace the character in front of the cursor.
+                // If that character is '-', replace the character immediately after it.
+                newText.length > oldText.length -> {
+                    val typedDigit = findInsertedDigit(oldText, newText)
+                    if (typedDigit != null) {
+                        var target = oldCursor
+                        if (target < oldText.length && oldText[target] == '-') target++
+                        if (target in 0..9) {
+                            val chars = oldText.padEnd(10, ' ').toCharArray()
+                            chars[target] = typedDigit
+                            val updated = chars.concatToString().take(10)
+                            var newCursor = (target + 1).coerceAtMost(10)
+                            if (newCursor < 10 && updated[newCursor] == '-') newCursor++
+                            state = androidx.compose.ui.text.input.TextFieldValue(
+                                updated,
+                                androidx.compose.ui.text.TextRange(newCursor)
+                            )
+                            onValue(updated)
+                        }
+                    }
+                }
+
+                // Cursor movement / selection changes without text changes.
+                else -> {
+                    var cursor = incoming.selection.start.coerceIn(0, oldText.length)
+                    if (cursor < oldText.length && oldText[cursor] == '-') cursor++
+                    state = incoming.copy(
+                        text = oldText,
+                        selection = androidx.compose.ui.text.TextRange(cursor.coerceAtMost(10))
+                    )
+                }
+            }
         },
-        label={Text(label)}, modifier=modifier, singleLine=true,
-        keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number,imeAction=androidx.compose.ui.text.input.ImeAction.Next),
-        keyboardActions=KeyboardActions(onNext={focusManager.moveFocus(FocusDirection.Down)})
+        label = { Text(label) },
+        modifier = modifier,
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Number,
+            imeAction = androidx.compose.ui.text.input.ImeAction.Next
+        ),
+        keyboardActions = KeyboardActions(
+            onNext = { focusManager.moveFocus(FocusDirection.Down) }
+        )
     )
+}
+
+
+private fun findInsertedDigit(oldText:String,newText:String):Char? {
+    if (newText.length != oldText.length + 1) return null
+    for (index in newText.indices) {
+        if (newText.removeRange(index, index + 1) == oldText) {
+            return newText[index].takeIf { it.isDigit() }
+        }
+    }
+    return null
+}
+
+private fun normalizeDateFieldText(value:String):String {
+    val raw = value.take(10)
+    val result = CharArray(10) { ' ' }
+    val source = if (raw.length == 10 && raw[2] == '-' && raw[5] == '-') {
+        raw
+    } else {
+        formatDateInput(raw).padEnd(10, ' ')
+    }
+    source.take(10).forEachIndexed { index, ch ->
+        result[index] = if (ch.isDigit() || ch == '-') ch else ' '
+    }
+    if (result.size > 2) result[2] = '-'
+    if (result.size > 5) result[5] = '-'
+    return result.concatToString()
 }
 
 
