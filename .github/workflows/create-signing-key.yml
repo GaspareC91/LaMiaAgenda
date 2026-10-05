@@ -1,0 +1,45 @@
+name: Create signing key
+
+on:
+  workflow_dispatch:
+
+jobs:
+  create-key:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Create signing key
+        run: |
+          KEYSTORE_PASSWORD=$(openssl rand -hex 32)
+          KEY_PASSWORD=$(openssl rand -hex 32)
+
+          keytool -genkeypair \
+            -v \
+            -keystore la-mia-agenda-release.jks \
+            -alias la-mia-agenda \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass "$KEYSTORE_PASSWORD" \
+            -keypass "$KEY_PASSWORD" \
+            -dname "CN=La mia agenda, OU=StudioDentista, O=La mia agenda, L=Italy, C=IT"
+
+          echo "$KEYSTORE_PASSWORD" > keystore-password.txt
+          echo "$KEY_PASSWORD" > key-password.txt
+          echo "la-mia-agenda" > key-alias.txt
+
+      - name: Upload signing files
+        uses: actions/upload-artifact@v4
+        with:
+          name: signing-key
+          path: |
+            la-mia-agenda-release.jks
+            keystore-password.txt
+            key-password.txt
+            key-alias.txt
