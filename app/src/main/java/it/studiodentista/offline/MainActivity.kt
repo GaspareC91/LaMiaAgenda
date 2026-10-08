@@ -27,6 +27,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -93,6 +96,10 @@ fun DentalApp(vm:DentalViewModel) {
     var selectedDate by remember { mutableStateOf(LocalDate.now().toString()) }
     var editingPrestazione by remember { mutableStateOf<PrestazioneEntity?>(null) }
     var editingStudy by remember { mutableStateOf<StudyEntity?>(null) }
+    var newPrestazionePatient by remember { mutableStateOf("") }
+    var newPrestazioneStudyId by remember { mutableStateOf<Long?>(null) }
+    var focusNewPrestazioneProcedure by remember { mutableStateOf(false) }
+    var newPrestazioneKey by remember { mutableStateOf(0) }
     var summaryMonth by remember { mutableStateOf(YearMonth.now()) }
     MaterialTheme(colorScheme=lightColorScheme(background=Color.White,surface=Color.White)) {
         Surface(Modifier.fillMaxSize(),color=Color.White) {
@@ -100,9 +107,11 @@ fun DentalApp(vm:DentalViewModel) {
                 when(screen) {
                     "calendar" -> CalendarScreen(prestations,studies,agreements,dayWorks, onDate={ d -> selectedDate=d; screen="prestazioni" }, onStudies={screen="studies"}, onSummary={month -> summaryMonth=month; screen="summary"})
                     "prestazioni" -> PrestazioniScreen(selectedDate,prestations,studies,agreements,dayWorks,
-                        onBack={screen="calendar"}, onNew={editingPrestazione=null;screen="newPrestazione"}, onEdit={editingPrestazione=it;screen="editPrestazione"}, onHalfDay={sid,v->vm.setHalfDay(selectedDate,sid,v)})
-                    "newPrestazione" -> PrestazioneFormScreen(null,selectedDate,studies,prestations,agreements,onBack={screen="prestazioni"},onSave={d,s,p,pr,price,gain,n->vm.addPrestazione(d,s,p,pr,price,gain,n){screen="prestazioni"}})
-                    "editPrestazione" -> editingPrestazione?.let { PrestazioneFormScreen(it,selectedDate,studies,prestations,agreements,onBack={screen="prestazioni"},onSave={d,s,p,pr,price,gain,n->vm.updatePrestazione(it,d,s,p,pr,price,gain,n){screen="prestazioni"}},onDelete={vm.deletePrestazione(it.id){screen="prestazioni"}}) } ?: run { screen="prestazioni" }
+                        onBack={screen="calendar"}, onNew={newPrestazionePatient=""; newPrestazioneStudyId=null; focusNewPrestazioneProcedure=false; newPrestazioneKey++; editingPrestazione=null; screen="newPrestazione"}, onEdit={editingPrestazione=it;screen="editPrestazione"}, onHalfDay={sid,v->vm.setHalfDay(selectedDate,sid,v)})
+                    "newPrestazione" -> key(newPrestazioneKey) {
+                        PrestazioneFormScreen(null,selectedDate,studies,prestations,agreements,onBack={screen="prestazioni"},onSave={d,s,p,pr,price,gain,n->vm.addPrestazione(d,s,p,pr,price,gain,n){screen="prestazioni"}},onSaveAndAdd={d,s,p,pr,price,gain,n->vm.addPrestazione(d,s,p,pr,price,gain,n){selectedDate=d; newPrestazionePatient=p; newPrestazioneStudyId=s; focusNewPrestazioneProcedure=true; newPrestazioneKey++; screen="newPrestazione"}},initialStudyId=newPrestazioneStudyId,initialPatient=newPrestazionePatient,focusProcedureOnOpen=focusNewPrestazioneProcedure)
+                    }
+                    "editPrestazione" -> editingPrestazione?.let { current -> PrestazioneFormScreen(current,selectedDate,studies,prestations,agreements,onBack={screen="prestazioni"},onSave={d,s,p,pr,price,gain,n->vm.updatePrestazione(current,d,s,p,pr,price,gain,n){screen="prestazioni"}},onSaveAndAdd={d,s,p,pr,price,gain,n->vm.updatePrestazione(current,d,s,p,pr,price,gain,n){selectedDate=d; newPrestazionePatient=p; newPrestazioneStudyId=s; focusNewPrestazioneProcedure=true; newPrestazioneKey++; editingPrestazione=null; screen="newPrestazione"}},onDelete={vm.deletePrestazione(current.id){screen="prestazioni"}}) } ?: run { screen="prestazioni" }
                     "studies" -> StudiesScreen(studies,agreements,onBack={screen="calendar"},onEdit={editingStudy=it;screen="editStudy"},onNew={editingStudy=null;screen="newStudy"})
                     "newStudy" -> StudyFormScreen(null,emptyList(),agreements,onBack={screen="studies"},onSave={n,c,d,t,f,p,v->vm.saveStudy(null,n,c,d,t,f,p,v){screen="studies"}})
                     "editStudy" -> editingStudy?.let { StudyFormScreen(it,agreements.filter{a->a.studyId==it.id},agreements,onBack={screen="studies"},onSave={n,c,d,t,f,p,v->vm.saveStudy(it.id,n,c,d,t,f,p,v){screen="studies"}},onDelete={vm.deleteStudy(it.id){screen="studies"}}) } ?: run {screen="studies"}
@@ -207,10 +216,14 @@ fun PrestazioneFormScreen(
     agreements: List<CompensationAgreementEntity>,
     onBack: () -> Unit,
     onSave: (String, Long, String, String, Long, Long, String) -> Unit,
-    onDelete: (() -> Unit)? = null
+    onSaveAndAdd: ((String, Long, String, String, Long, Long, String) -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
+    initialStudyId: Long? = null,
+    initialPatient: String = "",
+    focusProcedureOnOpen: Boolean = false
 ) {
     var date by remember { mutableStateOf(displayDate(item?.date ?: initialDate)) }
-    var patient by remember { mutableStateOf(item?.patientName?.let(::capitalizeWords) ?: "") }
+    var patient by remember { mutableStateOf(item?.patientName?.let(::capitalizeWords) ?: capitalizeWords(initialPatient)) }
     var procedure by remember { mutableStateOf(item?.procedure?.let(::capitalizeWords) ?: "") }
     var price by remember { mutableStateOf(if (item == null || item.priceCents == 0L) "" else formatInputMoney(item.priceCents)) }
     var gain by remember { mutableStateOf(if (item == null) "" else formatInputMoney(item.gainCents)) }
@@ -218,7 +231,7 @@ fun PrestazioneFormScreen(
     var note by remember { mutableStateOf(item?.notes ?: "") }
     var selected by remember {
         mutableStateOf(
-            studies.firstOrNull { it.id == item?.studyId }
+            studies.firstOrNull { it.id == (item?.studyId ?: initialStudyId) }
                 ?: studies.firstOrNull {
                     it.preferredDay == runCatching {
                         LocalDate.parse(initialDate, ISO_DATE).dayOfWeek.value
@@ -232,6 +245,15 @@ fun PrestazioneFormScreen(
     var confirmBack by remember { mutableStateOf(false) }
     var patientFocus by remember { mutableStateOf(false) }
     var procedureFocus by remember { mutableStateOf(false) }
+    val procedureFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(focusProcedureOnOpen) {
+        if (focusProcedureOnOpen) {
+            procedureFocusRequester.requestFocus()
+            keyboardController?.show()
+        }
+    }
 
     val agreement = selected?.let { effectiveAgreement(it.id, parseDateInput(date), agreements) }
     val fixedDay = agreement?.type == FIXED
@@ -338,7 +360,8 @@ fun PrestazioneFormScreen(
                             }
                         }
                     }
-                }
+                },
+                fieldModifier = Modifier.focusRequester(procedureFocusRequester)
             )
             Spacer(Modifier.height(8.dp))
 
@@ -375,20 +398,31 @@ fun PrestazioneFormScreen(
                 minLines = 3
             )
             Spacer(Modifier.height(14.dp))
-            Button(
-                onClick = {
-                    selected?.let { study ->
-                        onSave(
-                            parseDateInput(date),
-                            study.id,
-                            patient,
-                            procedure,
-                            if (fixedDay) 0L else parseMoney(price),
-                            parseMoney(gain),
-                            note
-                        )
+            val saveCurrent: (Boolean) -> Unit = { addAnother ->
+                selected?.let { study ->
+                    val savedDate = parseDateInput(date)
+                    val savedPatient = patient
+                    val savedProcedure = procedure
+                    val savedPrice = if (fixedDay) 0L else parseMoney(price)
+                    val savedGain = parseMoney(gain)
+                    val savedNote = note
+                    if (addAnother && onSaveAndAdd != null) {
+                        onSaveAndAdd(savedDate, study.id, savedPatient, savedProcedure, savedPrice, savedGain, savedNote)
+                    } else {
+                        onSave(savedDate, study.id, savedPatient, savedProcedure, savedPrice, savedGain, savedNote)
                     }
-                },
+                }
+            }
+            if (onSaveAndAdd != null) {
+                Button(
+                    onClick = { saveCurrent(true) },
+                    enabled = selected != null,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Salva e aggiungi") }
+                Spacer(Modifier.height(8.dp))
+            }
+            Button(
+                onClick = { saveCurrent(false) },
                 enabled = selected != null,
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Salva") }
@@ -415,9 +449,9 @@ fun PrestazioneFormScreen(
 }
 
 @Composable
-fun SuggestionField(label:String,value:String,onValue:(String)->Unit,suggestions:List<String>,expanded:Boolean,onSelect:(String)->Unit){
+fun SuggestionField(label:String,value:String,onValue:(String)->Unit,suggestions:List<String>,expanded:Boolean,onSelect:(String)->Unit,fieldModifier: Modifier = Modifier){
     Column(Modifier.fillMaxWidth()) {
-        OutlinedTextField(value,onValue,label={Text(label)},modifier=Modifier.fillMaxWidth(),singleLine=true,keyboardOptions=KeyboardOptions(capitalization=KeyboardCapitalization.Words,imeAction=androidx.compose.ui.text.input.ImeAction.Next))
+        OutlinedTextField(value,onValue,label={Text(label)},modifier=fieldModifier.fillMaxWidth(),singleLine=true,keyboardOptions=KeyboardOptions(capitalization=KeyboardCapitalization.Words,imeAction=androidx.compose.ui.text.input.ImeAction.Next))
         if(expanded && value.isNotBlank() && suggestions.isNotEmpty()) {
             Card(Modifier.fillMaxWidth().padding(top=2.dp),colors=CardDefaults.cardColors(containerColor=Color.White),elevation=CardDefaults.cardElevation(defaultElevation=3.dp)) {
                 Column(Modifier.fillMaxWidth().heightIn(max=180.dp)) { suggestions.take(6).forEach { suggestion -> Text(suggestion,Modifier.fillMaxWidth().clickable{onSelect(suggestion)}.padding(horizontal=12.dp,vertical=10.dp)) } }
