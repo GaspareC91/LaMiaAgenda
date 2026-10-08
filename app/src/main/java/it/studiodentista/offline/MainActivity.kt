@@ -48,6 +48,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import it.studiodentista.offline.db.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -358,6 +359,7 @@ fun PrestazioneFormScreen(
     var patientFocus by remember { mutableStateOf(false) }
     var procedureFocus by remember { mutableStateOf(false) }
     var noteTapPending by remember { mutableStateOf(false) }
+    var hideKeyboardOnNoteFocus by remember { mutableStateOf(false) }
     val procedureFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -365,6 +367,17 @@ fun PrestazioneFormScreen(
         if (focusProcedureOnOpen) {
             procedureFocusRequester.requestFocus()
             keyboardController?.show()
+        }
+    }
+
+    LaunchedEffect(hideKeyboardOnNoteFocus) {
+        if (hideKeyboardOnNoteFocus) {
+            // The IME may still be processing the previous field's Next action.
+            // Hide it after focus has settled, so arriving on Note never leaves
+            // the keyboard open unless Note was intentionally tapped.
+            delay(100)
+            keyboardController?.hide()
+            hideKeyboardOnNoteFocus = false
         }
     }
 
@@ -522,9 +535,14 @@ fun PrestazioneFormScreen(
                     .onFocusChanged { state ->
                         if (state.isFocused) {
                             if (noteTapPending) {
+                                // Direct tap: let the normal TextField behavior
+                                // open the keyboard.
                                 noteTapPending = false
                             } else {
-                                keyboardController?.hide()
+                                // Focus arrived from another field (for example
+                                // via the keyboard Next action): keep the field
+                                // focused, but close the keyboard.
+                                hideKeyboardOnNoteFocus = true
                             }
                         }
                     },
