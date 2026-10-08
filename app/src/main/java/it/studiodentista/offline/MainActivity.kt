@@ -12,23 +12,32 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.changedToDown
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -61,6 +70,93 @@ private val APP_EDGE_PADDING = 38.dp
 private fun useCompactVerticalPaddingOnThisDevice(): Boolean =
     android.os.Build.MANUFACTURER.equals("samsung", ignoreCase = true) &&
         android.os.Build.MODEL.startsWith("SM-A256", ignoreCase = true)
+
+
+@Composable
+private fun pressScaleModifier(source: MutableInteractionSource): Modifier {
+    val pressed by source.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.96f else 1f,
+        animationSpec = tween(durationMillis = 80),
+        label = "buttonPressScale"
+    )
+    return Modifier.graphicsLayer {
+        scaleX = scale
+        scaleY = scale
+    }
+}
+
+@Composable
+private fun PressedButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    colors: ButtonColors? = null,
+    contentPadding: PaddingValues? = null,
+    content: @Composable RowScope.() -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Button(
+        onClick = onClick,
+        modifier = modifier.then(pressScaleModifier(interactionSource)),
+        enabled = enabled,
+        colors = colors ?: ButtonDefaults.buttonColors(),
+        contentPadding = contentPadding ?: ButtonDefaults.ContentPadding,
+        interactionSource = interactionSource,
+        content = content
+    )
+}
+
+@Composable
+private fun PressedOutlinedButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    content: @Composable RowScope.() -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier.then(pressScaleModifier(interactionSource)),
+        enabled = enabled,
+        interactionSource = interactionSource,
+        content = content
+    )
+}
+
+@Composable
+private fun PressedTextButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    content: @Composable RowScope.() -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    TextButton(
+        onClick = onClick,
+        modifier = modifier.then(pressScaleModifier(interactionSource)),
+        enabled = enabled,
+        interactionSource = interactionSource,
+        content = content
+    )
+}
+
+@Composable
+private fun pressedClickableModifier(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+): Modifier {
+    val interactionSource = remember { MutableInteractionSource() }
+    return modifier
+        .then(pressScaleModifier(interactionSource))
+        .clickable(
+            interactionSource = interactionSource,
+            indication = null,
+            enabled = enabled,
+            onClick = onClick
+        )
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -143,14 +239,20 @@ fun CalendarScreen(prestations:List<PrestazioneEntity>,studies:List<StudyEntity>
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal=16.dp,vertical=4.dp)) {
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text("La mia agenda",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.SemiBold);Spacer(Modifier.weight(1f))}
         Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically){Text("‹",fontSize=28.sp,modifier=Modifier.clickable{month=month.minusMonths(1)});Text(month.format(IT_MONTH).replaceFirstChar{it.uppercase()},Modifier.weight(1f),style=MaterialTheme.typography.titleLarge);Text("›",fontSize=28.sp,modifier=Modifier.clickable{month=month.plusMonths(1)});Button(onClick=onStudies,contentPadding=PaddingValues(horizontal=10.dp,vertical=4.dp)){Text("Studi")}}
+        Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically){Text("‹",fontSize=28.sp,modifier=Modifier.clickable{month=month.minusMonths(1)});Text(month.format(IT_MONTH).replaceFirstChar{it.uppercase()},Modifier.weight(1f),style=MaterialTheme.typography.titleLarge);Text("›",fontSize=28.sp,modifier=Modifier.clickable{month=month.plusMonths(1)});PressedButton(onClick=onStudies,contentPadding=PaddingValues(horizontal=10.dp,vertical=4.dp)){Text("Studi")}}
         Spacer(Modifier.height(6.dp))
         Row(Modifier.fillMaxWidth()){listOf("L","M","M","G","V","S","D").forEach{Text(it,Modifier.weight(1f),fontWeight=FontWeight.Bold)} }
         Spacer(Modifier.height(3.dp))
         days.chunked(7).forEach { row ->
             Row(Modifier.fillMaxWidth()) {
                 row.forEach { d ->
-                    Box(Modifier.weight(1f).height(92.dp).padding(2.dp).border(1.dp,Color.LightGray,RoundedCornerShape(6.dp)).clickable(enabled=d!=null){ d?.let{ onDate(it.toString()) } }.padding(5.dp)) {
+                    Box(pressedClickableModifier(
+                        onClick = { d?.let { onDate(it.toString()) } },
+                        enabled = d != null,
+                        modifier = Modifier.weight(1f).height(92.dp).padding(2.dp)
+                            .border(1.dp, Color.LightGray, RoundedCornerShape(6.dp))
+                            .padding(5.dp)
+                    )) {
                         if (d != null) {
                             Column(Modifier.fillMaxSize()) {
                                 Text("${d.dayOfMonth}", fontWeight=if(d==LocalDate.now()) FontWeight.Bold else FontWeight.Normal)
@@ -166,7 +268,7 @@ fun CalendarScreen(prestations:List<PrestazioneEntity>,studies:List<StudyEntity>
         }
         Spacer(Modifier.height(10.dp))
         Card(Modifier.fillMaxWidth().clickable{reveal=!reveal},colors=CardDefaults.cardColors(containerColor=Color(0xFFF5F5F5))){Column(Modifier.padding(12.dp)){Text("Guadagni del mese",style=MaterialTheme.typography.labelLarge);Text(if(reveal)money(total) else "••••••",fontSize=23.sp,fontWeight=FontWeight.Bold);Text(if(reveal)"Tocca per oscurare" else "Tocca per visualizzare",style=MaterialTheme.typography.bodySmall,color=Color.Gray)}}
-        Spacer(Modifier.height(10.dp)); Row(horizontalArrangement=Arrangement.spacedBy(8.dp),modifier=Modifier.fillMaxWidth()){OutlinedButton(onClick={onDate(LocalDate.now().toString())},modifier=Modifier.weight(1f)){Text("Prestazioni di oggi")};OutlinedButton(onClick={onSummary(month)}){Text("Riepiloghi")}}
+        Spacer(Modifier.height(10.dp)); Row(horizontalArrangement=Arrangement.spacedBy(8.dp),modifier=Modifier.fillMaxWidth()){PressedOutlinedButton(onClick={onDate(LocalDate.now().toString())},modifier=Modifier.weight(1f)){Text("Prestazioni di oggi")};PressedOutlinedButton(onClick={onSummary(month)}){Text("Riepiloghi")}}
     }
 }
 
@@ -197,7 +299,10 @@ fun PrestazioniScreen(date:String, prestations:List<PrestazioneEntity>, studies:
                         }
                         Spacer(Modifier.height(4.dp))
                         items.forEach { item ->
-                            Row(Modifier.fillMaxWidth().clickable { onEdit(item) }.padding(vertical=6.dp), verticalAlignment=Alignment.CenterVertically) {
+                            Row(pressedClickableModifier(
+                                onClick = { onEdit(item) },
+                                modifier = Modifier.fillMaxWidth().padding(vertical=6.dp)
+                            ), verticalAlignment=Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text(item.patientName.ifBlank { "Paziente non indicato" })
                                     Text(item.procedure.ifBlank { "Prestazione non indicata" }, style=MaterialTheme.typography.bodySmall, color=Color.Gray)
@@ -210,7 +315,7 @@ fun PrestazioniScreen(date:String, prestations:List<PrestazioneEntity>, studies:
                 }
             }
         }
-        Button(onClick=onNew, modifier=Modifier.fillMaxWidth().padding(16.dp), colors=ButtonDefaults.buttonColors(containerColor=Color.Black)) { Text("+ NUOVA PRESTAZIONE", color=Color.White) }
+        PressedButton(onClick=onNew, modifier=Modifier.fillMaxWidth().padding(16.dp), colors=ButtonDefaults.buttonColors(containerColor=Color.Black)) { Text("+ NUOVA PRESTAZIONE", color=Color.White) }
     }
 }
 
@@ -252,6 +357,7 @@ fun PrestazioneFormScreen(
     var confirmBack by remember { mutableStateOf(false) }
     var patientFocus by remember { mutableStateOf(false) }
     var procedureFocus by remember { mutableStateOf(false) }
+    var noteTapPending by remember { mutableStateOf(false) }
     val procedureFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -289,7 +395,7 @@ fun PrestazioneFormScreen(
             Spacer(Modifier.height(8.dp))
 
             Box {
-                OutlinedButton(
+                PressedOutlinedButton(
                     onClick = { expanded = true },
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -401,7 +507,27 @@ fun PrestazioneFormScreen(
                 note,
                 { value -> note = value; dirty = true },
                 label = { Text("Note") },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                if (event.changes.any { it.changedToDown() }) {
+                                    noteTapPending = true
+                                }
+                            }
+                        }
+                    }
+                    .onFocusChanged { state ->
+                        if (state.isFocused) {
+                            if (noteTapPending) {
+                                noteTapPending = false
+                            } else {
+                                keyboardController?.hide()
+                            }
+                        }
+                    },
                 minLines = 3
             )
             Spacer(Modifier.height(14.dp))
@@ -421,21 +547,21 @@ fun PrestazioneFormScreen(
                 }
             }
             if (onSaveAndAdd != null) {
-                Button(
+                PressedButton(
                     onClick = { saveCurrent(true) },
                     enabled = selected != null,
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Salva e aggiungi") }
                 Spacer(Modifier.height(8.dp))
             }
-            Button(
+            PressedButton(
                 onClick = { saveCurrent(false) },
                 enabled = selected != null,
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Salva") }
             if (onDelete != null) {
                 Spacer(Modifier.height(8.dp))
-                OutlinedButton(onClick = onDelete, modifier = Modifier.fillMaxWidth()) { Text("Elimina") }
+                PressedOutlinedButton(onClick = onDelete, modifier = Modifier.fillMaxWidth()) { Text("Elimina") }
             }
         }
     }
@@ -446,10 +572,10 @@ fun PrestazioneFormScreen(
             title = { Text("Annullare le modifiche?") },
             text = { Text("Le modifiche non salvate verranno perse.") },
             confirmButton = {
-                TextButton(onClick = { confirmBack = false; onBack() }) { Text("Annulla modifiche") }
+                PressedTextButton(onClick = { confirmBack = false; onBack() }) { Text("Annulla modifiche") }
             },
             dismissButton = {
-                TextButton(onClick = { confirmBack = false }) { Text("Continua modifica") }
+                PressedTextButton(onClick = { confirmBack = false }) { Text("Continua modifica") }
             }
         )
     }
@@ -606,7 +732,7 @@ fun StudyFormScreen(
 
             Text("Giorno predefinito di lavoro", fontWeight = FontWeight.Medium)
             Box {
-                OutlinedButton(
+                PressedOutlinedButton(
                     onClick = { dayExpanded = true },
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -689,7 +815,7 @@ fun StudyFormScreen(
             )
             Spacer(Modifier.height(14.dp))
 
-            Button(
+            PressedButton(
                 onClick = {
                     onSave(
                         name,
@@ -708,7 +834,7 @@ fun StudyFormScreen(
 
             if (onDelete != null) {
                 Spacer(Modifier.height(8.dp))
-                OutlinedButton(
+                PressedOutlinedButton(
                     onClick = onDelete,
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -724,12 +850,12 @@ fun StudyFormScreen(
             title = { Text("Annullare le modifiche?") },
             text = { Text("Le modifiche non salvate verranno perse.") },
             confirmButton = {
-                TextButton(onClick = { confirm = false; onBack() }) {
+                PressedTextButton(onClick = { confirm = false; onBack() }) {
                     Text("Annulla modifiche")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { confirm = false }) {
+                PressedTextButton(onClick = { confirm = false }) {
                     Text("Continua modifica")
                 }
             }
@@ -737,7 +863,7 @@ fun StudyFormScreen(
     }
 }
 
-@Composable fun StudiesScreen(studies:List<StudyEntity>,agreements:List<CompensationAgreementEntity>,onBack:()->Unit,onEdit:(StudyEntity)->Unit,onNew:()->Unit){Column(Modifier.fillMaxSize()){TopBar("Studi",onBack);LazyColumn(Modifier.weight(1f).padding(16.dp)){items(studies){s->val a=effectiveAgreement(s.id,LocalDate.now().toString(),agreements);Column(Modifier.fillMaxWidth().clickable{onEdit(s)}.padding(vertical=10.dp)){Text(s.name,fontWeight=FontWeight.Medium);Text(listOf(s.city,dayName(s.preferredDay),a?.let{when(it.type){FIXED -> "Fisso ${money(it.fixedCents)}/giornata"; PERCENTAGE -> "${it.percentage}% a prestazione"; FIXED_PER_PRESTATION -> "Fisso a prestazione"; else -> it.type}}).filterNotNull().filter{it.isNotBlank()}.joinToString(" • "),style=MaterialTheme.typography.bodySmall,color=Color.Gray);HorizontalDivider()}}};Button(onClick=onNew,modifier=Modifier.fillMaxWidth().padding(16.dp),colors=ButtonDefaults.buttonColors(containerColor=Color.Black)){Text("+ NUOVO STUDIO",color=Color.White)}}}
+@Composable fun StudiesScreen(studies:List<StudyEntity>,agreements:List<CompensationAgreementEntity>,onBack:()->Unit,onEdit:(StudyEntity)->Unit,onNew:()->Unit){Column(Modifier.fillMaxSize()){TopBar("Studi",onBack);LazyColumn(Modifier.weight(1f).padding(16.dp)){items(studies){s->val a=effectiveAgreement(s.id,LocalDate.now().toString(),agreements);Column(Modifier.fillMaxWidth().clickable{onEdit(s)}.padding(vertical=10.dp)){Text(s.name,fontWeight=FontWeight.Medium);Text(listOf(s.city,dayName(s.preferredDay),a?.let{when(it.type){FIXED -> "Fisso ${money(it.fixedCents)}/giornata"; PERCENTAGE -> "${it.percentage}% a prestazione"; FIXED_PER_PRESTATION -> "Fisso a prestazione"; else -> it.type}}).filterNotNull().filter{it.isNotBlank()}.joinToString(" • "),style=MaterialTheme.typography.bodySmall,color=Color.Gray);HorizontalDivider()}}};PressedButton(onClick=onNew,modifier=Modifier.fillMaxWidth().padding(16.dp),colors=ButtonDefaults.buttonColors(containerColor=Color.Black)){Text("+ NUOVO STUDIO",color=Color.White)}}}
 
 @Composable
 fun SummaryScreen(prestations:List<PrestazioneEntity>, studies:List<StudyEntity>, agreements:List<CompensationAgreementEntity>, dayWorks:List<DayWorkEntity>, onBack:()->Unit, vm:DentalViewModel, initialMonth:YearMonth) {
@@ -781,7 +907,7 @@ fun SummaryScreen(prestations:List<PrestazioneEntity>, studies:List<StudyEntity>
         }
         Spacer(Modifier.height(8.dp))
         Box(Modifier.fillMaxWidth()) {
-            OutlinedButton(onClick={expanded=true},modifier=Modifier.fillMaxWidth()){Text(map[selected]?.name ?: "Tutti gli studi")}
+            PressedOutlinedButton(onClick={expanded=true},modifier=Modifier.fillMaxWidth()){Text(map[selected]?.name ?: "Tutti gli studi")}
             DropdownMenu(expanded,{expanded=false}) {
                 DropdownMenuItem(text={Text("Tutti gli studi")},onClick={selected=null;expanded=false})
                 studies.forEach{s->DropdownMenuItem(text={Text(s.name)},onClick={selected=s.id;expanded=false})}
@@ -797,8 +923,8 @@ fun SummaryScreen(prestations:List<PrestazioneEntity>, studies:List<StudyEntity>
         Text(money(totalGain(filtered,agreements,dayWorks)),style=MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp), modifier=Modifier.fillMaxWidth()) {
-            OutlinedButton(onClick={exportLauncher.launch("agenda_${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy.MM.dd-HH.mm.ss"))}.csv")}, modifier=Modifier.weight(1f)){Text("Esporta dati")}
-            OutlinedButton(onClick={importLauncher.launch(arrayOf("*/*"))}, modifier=Modifier.weight(1f)){Text("Importa dati")}
+            PressedOutlinedButton(onClick={exportLauncher.launch("agenda_${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy.MM.dd-HH.mm.ss"))}.csv")}, modifier=Modifier.weight(1f)){Text("Esporta dati")}
+            PressedOutlinedButton(onClick={importLauncher.launch(arrayOf("*/*"))}, modifier=Modifier.weight(1f)){Text("Importa dati")}
         }
     }
     if (pendingImport != null) {
@@ -806,12 +932,12 @@ fun SummaryScreen(prestations:List<PrestazioneEntity>, studies:List<StudyEntity>
             onDismissRequest={pendingImport=null},
             title={Text("Importa dati")},
             text={Text("Continuando, tutti i dati attualmente presenti nel database verranno cancellati e sostituiti con quelli del file selezionato. Vuoi continuare?")},
-            confirmButton={TextButton(onClick={
-                val csvText=pendingImport ?: return@TextButton
+            confirmButton={PressedTextButton(onClick={
+                val csvText=pendingImport ?: return@PressedTextButton
                 pendingImport=null
                 scope.launch { runCatching { vm.importDatabaseCsv(csvText) }.onFailure { importError=it.message ?: "Importazione non riuscita." } }
             }){Text("Continua")}},
-            dismissButton={TextButton(onClick={pendingImport=null}){Text("Annulla")}}
+            dismissButton={PressedTextButton(onClick={pendingImport=null}){Text("Annulla")}}
         )
     }
     if (importError != null) {
@@ -819,7 +945,7 @@ fun SummaryScreen(prestations:List<PrestazioneEntity>, studies:List<StudyEntity>
             onDismissRequest={importError=null},
             title={Text("Operazione non riuscita")},
             text={Text(importError ?: "")},
-            confirmButton={TextButton(onClick={importError=null}){Text("OK")}}
+            confirmButton={PressedTextButton(onClick={importError=null}){Text("OK")}}
         )
     }
 }
