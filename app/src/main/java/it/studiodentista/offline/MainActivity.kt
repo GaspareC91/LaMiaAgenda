@@ -58,6 +58,10 @@ private const val FIXED = "FIXED"
 private const val FIXED_PER_PRESTATION = "FIXED_PER_PRESTATION"
 private val APP_EDGE_PADDING = 38.dp
 
+private fun useCompactVerticalPaddingOnThisDevice(): Boolean =
+    android.os.Build.MANUFACTURER.equals("samsung", ignoreCase = true) &&
+        android.os.Build.MODEL.startsWith("SM-A256", ignoreCase = true)
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -103,7 +107,10 @@ fun DentalApp(vm:DentalViewModel) {
     var summaryMonth by remember { mutableStateOf(YearMonth.now()) }
     MaterialTheme(colorScheme=lightColorScheme(background=Color.White,surface=Color.White)) {
         Surface(Modifier.fillMaxSize(),color=Color.White) {
-            Box(Modifier.fillMaxSize().padding(top=APP_EDGE_PADDING,bottom=APP_EDGE_PADDING)) {
+            Box(Modifier.fillMaxSize().padding(
+                top = if (useCompactVerticalPaddingOnThisDevice()) 0.dp else APP_EDGE_PADDING,
+                bottom = if (useCompactVerticalPaddingOnThisDevice()) 0.dp else APP_EDGE_PADDING
+            )) {
                 when(screen) {
                     "calendar" -> CalendarScreen(prestations,studies,agreements,dayWorks, onDate={ d -> selectedDate=d; screen="prestazioni" }, onStudies={screen="studies"}, onSummary={month -> summaryMonth=month; screen="summary"})
                     "prestazioni" -> PrestazioniScreen(selectedDate,prestations,studies,agreements,dayWorks,
